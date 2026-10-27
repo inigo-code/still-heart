@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+build/
+dist/
+data/
+downloads/
+*.log
+*.log.old
+bin/*.exe
+.idea/
+.vscode/
+# gallery-dl / ffmpeg copied next to the app at runtime (the source run uses the repo root)
+/gallery-dl.exe
+/ffmpeg.exe
