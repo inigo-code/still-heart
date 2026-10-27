@@ -334,7 +334,7 @@ function jobCard(job) {
     <div class="thumb-wrap">${thumb}</div>
     <div class="meta">
       <h3 title="${escapeHtml(job.title || job.url)}">${escapeHtml(title)}</h3>
-      <div class="sub">${statusChip(job)}<span>${escapeHtml(job.extractor || hostOf(job.url))}</span><span>${escapeHtml(count)}</span><span>${fmtElapsed(p.elapsed)}</span></div>
+      <div class="sub">${statusChip(job)}<span>${escapeHtml(job.extractor || hostOf(job.url))}</span><span>${escapeHtml(count)}</span><span class="elapsed">${fmtElapsed(p.elapsed)}</span></div>
       ${stats.length ? `<div class="stats">${escapeHtml(stats.join("  ·  "))}</div>` : ""}
       <div class="job-url">${escapeHtml(job.url)}</div>
       ${job.status_line ? `<div class="status-line">${escapeHtml(job.status_line)}</div>` : ""}
@@ -378,10 +378,17 @@ function renderPreview() {
   const scans = scanJobs().filter((j) => (j.item_count || 0) > 0 || j.status === "scanning");
   const sel = $("preview-scan");
   const currentIds = scans.map((s) => s.id);
-  if (sel.dataset.ids !== currentIds.join(",")) {
+  const optionLabel = (s) => `${s.title || hostOf(s.url)} (${s.item_count || 0})`;
+  if (sel.dataset.ids === currentIds.join(",")) {
+    // Same scans: refresh labels in place so counts and titles stay current.
+    scans.forEach((s, i) => {
+      const opt = sel.options[i];
+      if (opt && opt.textContent !== optionLabel(s)) opt.textContent = optionLabel(s);
+    });
+  } else {
     sel.dataset.ids = currentIds.join(",");
     sel.innerHTML = scans.length
-      ? scans.map((s) => `<option value="${s.id}">${escapeHtml(s.title || hostOf(s.url))} (${s.item_count || 0})</option>`).join("")
+      ? scans.map((s) => `<option value="${s.id}">${escapeHtml(optionLabel(s))}</option>`).join("")
       : `<option value="">No scans yet</option>`;
     if (state.scanId && currentIds.includes(state.scanId)) sel.value = state.scanId;
     else if (scans[0]) {
@@ -460,7 +467,14 @@ function renderJobs() {
   for (const job of list) {
     const sig = jobSig(job);
     const prev = el.querySelector(`.job[data-id="${job.id}"]`);
-    if (prev && prev.dataset.sig === sig) continue;
+    if (prev && prev.dataset.sig === sig) {
+      // Elapsed is left out of the signature (rebuilding the card every tick
+      // flickers), so tick the timer text in place.
+      const timer = prev.querySelector(".elapsed");
+      const text = fmtElapsed((job.progress || {}).elapsed);
+      if (timer && timer.textContent !== text) timer.textContent = text;
+      continue;
+    }
     const wrap = document.createElement("div");
     wrap.innerHTML = jobCard(job);
     const next = wrap.firstElementChild;
@@ -526,7 +540,7 @@ function fillSettings(cfg) {
   $("set-scan-limit").value = cfg.scan_limit || 240;
   $("set-sleep").value = cfg.sleep_request || 0;
   $("set-rate").value = cfg.rate || "";
-  $("set-retries").value = cfg.retries || 4;
+  $("set-retries").value = cfg.retries ?? 4;
   $("set-ugoira").value = cfg.convert_ugoira || "mp4";
   $("set-warn").value = cfg.warn_free_gb || 0;
   $("set-min-free").value = cfg.min_free_gb || 0;
@@ -586,20 +600,27 @@ async function sendUrls(kind) {
   const path = kind === "scan" ? "/api/scan" : "/api/grab";
   try {
     const created = await api(path, { method: "POST", body: JSON.stringify({ url, range }) });
-    const already = !!created.already || (created.jobs || []).some((j) => j.already);
-    if (already) {
-      toast("Already downloading that album.", "warn");
+    const list = created.jobs || [created];
+    const fresh = list.filter((j) => !j.already);
+    const rest = created.rest || [];
+    const notes = [];
+    if (list.length > fresh.length) notes.push(`${list.length - fresh.length} already downloading`);
+    if (created.invalid) notes.push(`${created.invalid} not a URL`);
+    if (rest.length) notes.push(`${rest.length} over the batch limit left in the box — send again`);
+    const extra = notes.length ? ` (${notes.join(", ")})` : "";
+    // Leave anything that wasn't queued in the box so it isn't lost.
+    $("url").value = rest.join("\n");
+    if (!fresh.length) {
+      toast(`Nothing new queued${extra}.`, "warn");
       return;
     }
-    $("url").value = "";
+    const n = fresh.length;
     if (kind === "scan") {
-      const id = created.id || (created.jobs && created.jobs[0] && created.jobs[0].id);
-      if (id) selectScan(id);
-      toast("Scan started. Pictures will appear in Preview.");
+      selectScan(fresh[0].id);
+      toast((n > 1 ? `${n} scans started. Pictures will appear in Preview.` : "Scan started. Pictures will appear in Preview.") + extra, notes.length ? "warn" : "ok");
       setView("preview");
     } else {
-      const n = created.count || 1;
-      toast(n > 1 ? `${n} downloads started.` : "Download started.");
+      toast((n > 1 ? `${n} downloads started.` : "Download started.") + extra, notes.length ? "warn" : "ok");
       setView("queue");
     }
   } catch (err) {
@@ -751,14 +772,23 @@ function wire() {
   $("clear-preview").addEventListener("click", async () => {
     const scan = currentScan();
     if (!scan) return;
-    if (["queued", "starting", "scanning"].includes(scan.status)) {
+    if (["queued", "starting", "scanning", "stopping"].includes(scan.status)) {
       try {
         await api(`/api/jobs/${scan.id}/stop`, { method: "POST" });
+        // The server won't delete a scan until gallery-dl has actually exited.
+        for (let i = 0; i < 40; i += 1) {
+          const job = await api(`/api/jobs/${scan.id}`);
+          if (["done", "error", "stopped", "partial"].includes(job.status)) break;
+          await new Promise((r) => setTimeout(r, 200));
+        }
       } catch {}
     }
     try {
       await api(`/api/jobs/${scan.id}`, { method: "DELETE" });
-    } catch {}
+    } catch (err) {
+      toast(`Couldn't clear this scan: ${err.message}`, "critical");
+      return;
+    }
     delete state.scanItems[scan.id];
     state.scanId = "";
     state.selected = new Set();
@@ -845,7 +875,7 @@ function wire() {
       scan_limit: Number($("set-scan-limit").value || 240),
       sleep_request: Number($("set-sleep").value || 0),
       rate: $("set-rate").value,
-      retries: Number($("set-retries").value || 4),
+      retries: $("set-retries").value === "" ? 4 : Number($("set-retries").value),
       convert_ugoira: $("set-ugoira").value,
       warn_free_gb: Number($("set-warn").value || 0),
       min_free_gb: Number($("set-min-free").value || 0),

@@ -21,7 +21,7 @@ def start() -> None:
             try:
                 cfg = settings.load()
                 cap = int(cfg.get("max_active") or 3)
-                if guards.snapshot().get("blocked"):
+                if guards.snapshot().get("blocked") or engine.is_updating():
                     time.sleep(2)
                     continue
                 if jobs.active_count() < cap:

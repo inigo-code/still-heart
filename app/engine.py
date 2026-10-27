@@ -293,12 +293,18 @@ def _filter_expression(cfg: dict) -> str:
     return " and ".join(conds)
 
 
+def _retries(cfg: dict) -> int:
+    # 0 is a real choice ("don't retry"), so don't let `or` turn it into the default.
+    value = cfg.get("retries")
+    return 4 if value in (None, "") else int(value)
+
+
 def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str = "") -> None:
     extractor: dict[str, Any] = {
         "base-directory": str(settings.output_dir()).replace("\\", "/"),
         "filename": settings.filename_format(cfg),
         "directory": settings.directory_format(cfg),
-        "retries": int(cfg.get("retries") or 4),
+        "retries": _retries(cfg),
         "timeout": 30,
         "sleep-request": float(cfg.get("sleep_request") or 0) or None,
         "archive": str(settings.archive_path() or "").replace("\\", "/") or None,
@@ -329,7 +335,7 @@ def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str =
 
     downloader: dict[str, Any] = {
         "mtime": True,
-        "retries": int(cfg.get("retries") or 4),
+        "retries": _retries(cfg),
         "timeout": 30,
         "progress": not scan,
     }
@@ -848,6 +854,14 @@ def check_engine() -> dict:
     return engine_status()
 
 
+_updating = threading.Event()
+
+
+def is_updating() -> bool:
+    """True while gallery-dl.exe is being replaced; the scheduler holds new jobs."""
+    return _updating.is_set()
+
+
 def update_engine() -> dict:
     ensure_local_gallery_dl()
     if not can_self_update():
@@ -855,6 +869,21 @@ def update_engine() -> dict:
             "This copy of gallery-dl cannot self-update. "
             "The portable app uses gallery-dl.exe next to Stills.exe."
         )
+    # Windows locks a running exe, so the update would fail (or a job would
+    # start mid-update). Raise the flag first so the scheduler can't race us.
+    if _updating.is_set():
+        raise RuntimeError("An update is already running.")
+    _updating.set()
+    try:
+        time.sleep(0.4)  # let a scheduler pass that read the flag before we set it finish
+        if jobs.active_count():
+            raise RuntimeError("Stop or finish the running downloads before updating gallery-dl.")
+        return _run_update()
+    finally:
+        _updating.clear()
+
+
+def _run_update() -> dict:
     gdl = find_gallery_dl()
     if not gdl:
         raise RuntimeError("gallery-dl was not found")

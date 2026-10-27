@@ -110,18 +110,53 @@ def _valid_http(url: str) -> bool:
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
 
 
-def parse_urls(raw: str) -> list[str]:
-    parts = [p.strip() for p in re.split(r"[\s,;]+", raw.strip()) if p.strip()]
+def _split_urls(raw: str) -> list[str]:
+    """Split pasted text into URL candidates.
+
+    Commas and semicolons are legal inside URLs (``?tags=a,b``), so they only
+    separate entries when another http(s):// URL follows them.
+    """
+    parts: list[str] = []
+    for token in raw.split():
+        for piece in re.split(r"[,;]+(?=https?://)", token):
+            piece = piece.strip().rstrip(",;")
+            if piece:
+                parts.append(piece)
+    return parts
+
+
+def parse_urls_report(raw: str) -> tuple[list[str], int, list[str]]:
+    """URLs to queue, how many entries weren't URLs, and the URLs past the batch cap."""
     urls: list[str] = []
+    rest: list[str] = []
     seen: set[str] = set()
-    for part in parts:
-        if not _valid_http(part) or part in seen:
+    invalid = 0
+    for part in _split_urls(raw or ""):
+        if not _valid_http(part):
+            invalid += 1
+            continue
+        if part in seen:
             continue
         seen.add(part)
-        urls.append(part)
-        if len(urls) >= MAX_BATCH:
-            break
-    return urls
+        (urls if len(urls) < MAX_BATCH else rest).append(part)
+    return urls, invalid, rest
+
+
+def parse_urls(raw: str) -> list[str]:
+    return parse_urls_report(raw)[0]
+
+
+RE_RANGE = re.compile(r"^\s*(\d*\s*[-:]?\s*\d*(\s*:\s*\d+)?)(\s*,\s*\d*\s*[-:]?\s*\d*(\s*:\s*\d+)?)*\s*$")
+
+
+def clean_range(raw: str | None) -> str:
+    """Normalize the Range box: blank/"all" means everything; anything else must be a gallery-dl range."""
+    text = (raw or "").strip()
+    if text.lower() in {"", "all", "*"}:
+        return ""
+    if not RE_RANGE.match(text) or not re.search(r"\d", text):
+        raise HTTPException(400, "Range must look like 1-80, 5, or 1-10,25-30 (or leave it blank for all)")
+    return re.sub(r"\s+", "", text)
 
 
 def _require_terms() -> dict:
@@ -189,33 +224,28 @@ def put_settings(body: SettingsIn) -> dict:
         raise HTTPException(400, str(exc)) from exc
 
 
-def _enqueue(urls: list[str], *, kind: str, range_spec: str = "") -> dict:
-    created: list[dict] = []
+def _enqueue(body: UrlsIn, *, kind: str) -> dict:
+    urls, invalid, rest = parse_urls_report(body.url)
+    if not urls:
+        raise HTTPException(400, "Paste one or more http(s) gallery, album, or image URLs")
+    range_spec = clean_range(body.range)
     cfg = _require_terms()
     if kind == "scan" and not range_spec:
         limit = int(cfg.get("scan_limit") or 240)
         range_spec = f"1-{limit}"
-    for url in urls:
-        created.append(jobs.create_job(url, kind=kind, range_spec=range_spec))
-    if len(created) == 1:
-        return created[0]
-    return {"jobs": created, "count": len(created)}
+    created = [jobs.create_job(url, kind=kind, range_spec=range_spec) for url in urls]
+    # Always the same shape, so the UI can report what was queued vs. skipped.
+    return {"jobs": created, "count": len(created), "invalid": invalid, "rest": rest}
 
 
 @app.post("/api/grab")
 def grab(body: UrlsIn) -> dict:
-    urls = parse_urls(body.url)
-    if not urls:
-        raise HTTPException(400, "Paste one or more http(s) gallery, album, or image URLs")
-    return _enqueue(urls, kind="download", range_spec=(body.range or "").strip())
+    return _enqueue(body, kind="download")
 
 
 @app.post("/api/scan")
 def scan(body: UrlsIn) -> dict:
-    urls = parse_urls(body.url)
-    if not urls:
-        raise HTTPException(400, "Paste one or more http(s) gallery, album, or image URLs")
-    return _enqueue(urls, kind="scan", range_spec=(body.range or "").strip())
+    return _enqueue(body, kind="scan")
 
 
 @app.get("/api/jobs")
