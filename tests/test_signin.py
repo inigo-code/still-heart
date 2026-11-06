@@ -193,6 +193,31 @@ def test_sign_in_says_what_is_required() -> None:
         assert rows["pixiv"] == "required" and rows["instagram"] == "often" and rows["reddit"] == "optional"
 
 
+def test_a_video_gets_a_real_thumbnail() -> None:
+    import shutil
+
+    from app import main
+
+    tool = shutil.which("ffmpeg") or str(ROOT / "bin" / "ffmpeg.exe")
+    with tempfile.TemporaryDirectory() as folder:
+        tmp = Path(folder)
+        main.POSTER_DIR = tmp / "posters"
+        real = main.find_ffmpeg
+        main.find_ffmpeg = lambda: tool
+        try:
+            clip = tmp / "clip name.mp4"
+            subprocess.run([tool, "-v", "error", "-f", "lavfi", "-i", "color=c=red:s=320x240:d=0.4", "-pix_fmt", "yuv420p", str(clip)], check=True)
+            first = main._video_poster(clip)
+            assert first and first.startswith(bytes((0xff, 0xd8)))
+            assert len(list(main.POSTER_DIR.iterdir())) == 1
+            assert main._video_poster(clip) == first
+            broken = tmp / "broken.mp4"
+            broken.write_bytes(b"not a video")
+            assert main._video_poster(broken) is None
+        finally:
+            main.find_ffmpeg = real
+
+
 if __name__ == "__main__":
     for name, test in sorted(globals().items()):
         if name.startswith("test_"):

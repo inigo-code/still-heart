@@ -584,10 +584,10 @@ function renderLibrary() {
   }
   grid.innerHTML = files
     .map((file, i) => {
-      const src = file.kind === "video" ? "" : thumbSrc(file.path);
+      const src = thumbSrc(file.path);
       const dim = file.kind === "video" ? "video" : fmtBytes(file.size);
       return `<button type="button" class="shot" data-lib="${i}" title="${escapeHtml(file.rel)}">
-        ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />` : `<div class="ph">${escapeHtml((file.ext || file.kind || "").toUpperCase())}</div>`}
+        ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" data-ph="${escapeHtml(file.ext || file.kind)}" />` : `<div class="ph">${escapeHtml((file.ext || file.kind || "").toUpperCase())}</div>`}
         <span class="kind">${escapeHtml(dim)}</span>
         <span class="cap">${escapeHtml(file.name)}</span>
         <span class="lib-open" data-act="lib-open" data-path="${escapeHtml(file.path)}">Show</span>
@@ -643,9 +643,13 @@ function renderJobs() {
     }
     ordered.push(next);
   }
-  // Newest job is first in the list. appendChild moves an existing node,
-  // so a download that starts later does not stay stuck at the bottom.
-  for (const node of ordered) el.appendChild(node);
+  // Newest job is first in the list, so a later download can't stay at the
+  // bottom. Moving a card mid-click loses the click, so only move what's out of place.
+  let place = el.firstElementChild;
+  for (const node of ordered) {
+    if (node === place) place = place.nextElementSibling;
+    else el.insertBefore(node, place);
+  }
 }
 
 // Carry already-decoded <img> elements from the old card into the rebuilt one

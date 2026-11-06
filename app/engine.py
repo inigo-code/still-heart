@@ -536,7 +536,7 @@ def _consume_download_line(job_id: str, line: str, started: float, base: Path) -
     if not is_skip:
         if not current.get("output_path"):
             fields["output_path"] = path
-        if not current.get("thumbnail") and candidate.suffix.lower().lstrip(".") in IMAGE_EXTS | GIF_EXTS:
+        if not current.get("thumbnail") and candidate.suffix.lower().lstrip(".") in IMAGE_EXTS | GIF_EXTS | VIDEO_EXTS:
             fields["thumbnail"] = path
         title = current.get("title") or ""
         if not title or title == current.get("url"):

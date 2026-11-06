@@ -35,7 +35,8 @@ def start() -> None:
     threading.Thread(target=loop, daemon=True).start()
 
     def _warmup() -> None:
-        time.sleep(1.5)
+        # Windows checks a program the first time it runs. Doing that now
+        # means the first download doesn't have to wait for it.
         try:
             from app.runtime import warm_runtime
 

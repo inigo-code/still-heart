@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import ipaddress
 import json
@@ -28,7 +29,7 @@ from pydantic import BaseModel, Field
 
 from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, recycle, scheduler, settings, signin
 from app.paths import DATA_DIR, WEB_DIR, ensure_dirs, free_port
-from app.runtime import ensure_local_gallery_dl, invalidate_runtime, runtime_report, warm_runtime
+from app.runtime import ensure_local_gallery_dl, find_ffmpeg, invalidate_runtime, runtime_report, warm_runtime
 
 IMAGE_EXTS = engine.IMAGE_EXTS
 VIDEO_EXTS = engine.VIDEO_EXTS
@@ -713,6 +714,51 @@ def _fetch_thumb(url: str, limit: int = THUMB_SOURCE_MAX) -> tuple[bytes, str]:
     raise cert_error or OSError("thumbnail fetch failed")
 
 
+POSTER_DIR = DATA_DIR / "posters"
+_poster_slots = threading.Semaphore(3)
+
+
+def _grab_poster(ffmpeg: str, video: Path, seconds: str) -> bytes:
+    flags = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
+    try:
+        done = subprocess.run(
+            [ffmpeg, "-v", "error", "-ss", seconds, "-i", str(video), "-frames:v", "1", "-vf", f"scale='min({THUMB_EDGE},iw)':-2",
+             "-q:v", "4", "-f", "image2pipe", "-c:v", "mjpeg", "pipe:1"],
+            capture_output=True, timeout=25, creationflags=flags,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return b""
+    return done.stdout
+
+
+def _video_poster(video: Path) -> bytes | None:
+    """One frame from a video, kept so it's only worked out once."""
+    try:
+        stat = video.stat()
+    except OSError:
+        return None
+    name = hashlib.sha1(f"{video}|{stat.st_mtime_ns}|{stat.st_size}".encode("utf-8", "replace")).hexdigest()
+    cached = POSTER_DIR / f"{name}.jpg"
+    try:
+        return cached.read_bytes()
+    except OSError:
+        pass
+    ffmpeg = find_ffmpeg()
+    if not ffmpeg:
+        return None
+    with _poster_slots:
+        # A clip shorter than a second has nothing at that point.
+        data = _grab_poster(str(ffmpeg), video, "1") or _grab_poster(str(ffmpeg), video, "0")
+    if not data:
+        return None
+    try:
+        POSTER_DIR.mkdir(parents=True, exist_ok=True)
+        cached.write_bytes(data)
+    except OSError:
+        pass
+    return data
+
+
 @app.get("/api/thumb")
 def thumb(request: Request, u: str = Query(min_length=8), full: bool = False) -> Response:
     fetch_site = (request.headers.get("sec-fetch-site") or "").lower()
@@ -721,8 +767,13 @@ def thumb(request: Request, u: str = Query(min_length=8), full: bool = False) ->
     local = Path(u)
     if local.is_file() and _safe_under(settings.output_dir(), local):
         ext = local.suffix.lower().lstrip(".")
-        if full or ext in VIDEO_EXTS:
+        if full:
             return FileResponse(local)
+        if ext in VIDEO_EXTS:
+            poster = _video_poster(local)
+            if poster is None:
+                raise HTTPException(404, "Thumbnail unavailable")
+            return Response(content=poster, media_type="image/jpeg", headers={"Cache-Control": "public, max-age=86400"})
         cache_key = str(local.resolve())
         cached_local = _thumb_cache_get(cache_key)
         headers = {"Cache-Control": "public, max-age=86400"}
