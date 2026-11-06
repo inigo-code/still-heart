@@ -7,7 +7,7 @@ from pathlib import Path
 from threading import Lock
 from urllib.parse import urlparse
 
-from app.paths import ARCHIVE_PATH, DEFAULT_DOWNLOADS, SETTINGS_PATH, ensure_dirs
+from app.paths import moved_path, ARCHIVE_PATH, DEFAULT_DOWNLOADS, SETTINGS_PATH, ensure_dirs
 
 DEFAULTS = {
     "accepted_terms": False,
@@ -91,6 +91,12 @@ def _read() -> tuple[dict, bool]:
     merged = deepcopy(DEFAULTS)
     merged.update({k: v for k, v in data.items() if k in DEFAULTS})
     persist = any(key not in data for key in DEFAULTS)
+    for key in ("output_dir", "cookies_file"):
+        value = str(merged.get(key) or "")
+        fixed = moved_path(value)
+        if fixed != value:
+            merged[key] = fixed
+            persist = True
     return merged, persist
 
 

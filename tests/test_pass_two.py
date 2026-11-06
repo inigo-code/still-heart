@@ -81,5 +81,21 @@ class TestOldFolderMoves(unittest.TestCase):
             self.assertEqual(paths.portable_home(exe).name, "Stills")
 
 
+class TestSavedPathsFollow(unittest.TestCase):
+    def test_a_path_in_the_old_folder_moves(self):
+        old = Path(r"C:\\Suite\\Old")
+        new = Path(r"C:\\Suite\\New")
+        self.assertEqual(paths.moved_path(str(old / "downloads" / "a.jpg"), old, new), str(new / "downloads" / "a.jpg"))
+
+    def test_other_paths_stay(self):
+        old = Path(r"C:\\Suite\\Old")
+        new = Path(r"C:\\Suite\\New")
+        for text in (r"D:\\Pictures", "https://example.test/a.jpg", ""):
+            self.assertEqual(paths.moved_path(text, old, new), text)
+
+    def test_nothing_moves_when_there_was_no_old_folder(self):
+        self.assertEqual(paths.moved_path(r"C:\\Suite\\Old\\a.jpg", None), r"C:\\Suite\\Old\\a.jpg")
+
+
 if __name__ == "__main__":
     unittest.main()

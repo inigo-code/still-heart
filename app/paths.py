@@ -125,6 +125,32 @@ SCANS_PATH = DATA_DIR / "scans.json"
 LOG_PATH = ROOT / "stillheart.log"
 
 
+def _legacy_root() -> Path | None:
+    """The app's folder under its earlier name, once the app has moved out of it."""
+    if not is_frozen():
+        return None
+    old = _OLD_FOLDER.get(Path(sys.executable).name.lower())
+    if not old or ROOT.name.lower() == old.lower():
+        return None
+    return ROOT.parent / old
+
+
+def moved_path(text: str, old_root: Path | None = None, new_root: Path | None = None) -> str:
+    """Rewrite a saved path from the old folder to the new one. Other paths stay.
+
+    Settings and history keep full paths, so a moved folder would otherwise leave
+    the app writing to the old place and losing sight of what it saved.
+    """
+    old = old_root if old_root is not None else _legacy_root()
+    new = new_root if new_root is not None else ROOT
+    if not text or old is None:
+        return text
+    try:
+        return str(Path(new) / Path(text).relative_to(old))
+    except ValueError:
+        return text
+
+
 def ensure_dirs(downloads: Path | None = None) -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     target = downloads or DEFAULT_DOWNLOADS

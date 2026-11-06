@@ -12,7 +12,6 @@ $py = ".\.venv\Scripts\python.exe"
 # Stop the WebView2 white flash on minimize/maximize (edits pywebview's launch args).
 & $py tools\patch_pywebview.py
 
-& $py tools\make_logo.py
 
 $bin = Join-Path $PSScriptRoot "bin"
 New-Item -ItemType Directory -Force -Path $bin | Out-Null

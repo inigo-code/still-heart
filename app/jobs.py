@@ -8,7 +8,7 @@ from copy import deepcopy
 from threading import Lock
 from typing import Any
 
-from app.paths import HISTORY_PATH, SCANS_PATH, ensure_dirs
+from app.paths import moved_path, HISTORY_PATH, SCANS_PATH, ensure_dirs
 
 TERMINAL = {"done", "error", "stopped", "partial"}
 ACTIVE = {"queued", "starting", "scanning", "downloading", "stopping"}
@@ -508,4 +508,9 @@ def load_history() -> None:
                 item.setdefault("files", [])
                 item.setdefault("items", [])
                 item.setdefault("progress", {})
+                for key in ("output_path", "thumbnail"):
+                    if isinstance(item.get(key), str):
+                        item[key] = moved_path(item[key])
+                if isinstance(item.get("files"), list):
+                    item["files"] = [moved_path(path) if isinstance(path, str) else path for path in item["files"]]
                 _jobs[item["id"]] = item
