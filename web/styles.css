@@ -424,7 +424,7 @@ label { display: grid; gap: 7px; font-size: 13px; color: var(--muted); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
-/* ---------- Backlot ---------- */
+/* ---------- Spoolhouse ---------- */
 body { background: var(--bg); font-variant-numeric: tabular-nums; }
 button, input, select, textarea { font-family: inherit; }
 *:focus-visible { outline: 2px solid var(--accent-c); outline-offset: 2px; box-shadow: none; }
