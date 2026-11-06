@@ -250,7 +250,7 @@ def main() -> None:
             height=900,
             min_size=(1020, 700),
             confirm_close=True,
-            background_color="#0a0f14",
+            background_color="#100f0e",
         )
         icon = WEB_DIR / "stills.ico"
         print(f"icon={icon} exists={icon.is_file()}", flush=True)

@@ -4,6 +4,7 @@ import asyncio
 import io
 import ipaddress
 import json
+import mimetypes
 import os
 import re
 import socket
@@ -560,13 +561,16 @@ class _SafeRedirectHandler(urllib.request.HTTPRedirectHandler):
         return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 
-_THUMB_SSL = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+# A bare SSLContext trusts nothing, so every site fell through to the loose one.
+_THUMB_SSL = ssl.create_default_context()
 _THUMB_SSL_LOOSE = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 _THUMB_SSL_LOOSE.check_hostname = False
 _THUMB_SSL_LOOSE.verify_mode = ssl.CERT_NONE
 THUMB_EDGE = 360
 THUMB_CACHE_BYTES = 64 * 1024 * 1024
 THUMB_ENTRY_MAX = 2 * 1024 * 1024
+FULL_IMAGE_MAX = 64 * 1024 * 1024
+THUMB_SOURCE_MAX = 24 * 1024 * 1024
 _THUMB_CACHE: OrderedDict[str, tuple[bytes, str]] = OrderedDict()
 _thumb_cache_bytes = 0
 _thumb_lock = threading.Lock()
@@ -617,7 +621,7 @@ def _thumb_cache_put(key: str, value: tuple[bytes, str]) -> None:
             _thumb_cache_bytes -= len(dropped[0])
 
 
-def _fetch_thumb(url: str) -> tuple[bytes, str]:
+def _fetch_thumb(url: str, limit: int = THUMB_SOURCE_MAX) -> tuple[bytes, str]:
     parsed = urlparse(url)
     referer = f"{parsed.scheme}://{parsed.netloc}/"
     req = urllib.request.Request(
@@ -633,7 +637,7 @@ def _fetch_thumb(url: str) -> tuple[bytes, str]:
         opener = urllib.request.build_opener(_SafeRedirectHandler(), urllib.request.HTTPSHandler(context=ctx))
         try:
             with opener.open(req, timeout=12) as resp:
-                return resp.read(8_000_000), resp.headers.get("Content-Type") or "image/jpeg"
+                return resp.read(limit), resp.headers.get("Content-Type") or "image/jpeg"
         except urllib.error.URLError as exc:
             reason = getattr(exc, "reason", None)
             if isinstance(reason, ssl.SSLCertVerificationError):
@@ -660,12 +664,14 @@ def thumb(request: Request, u: str = Query(min_length=8), full: bool = False) ->
             data, ctype = cached_local
             return Response(content=data, media_type=ctype, headers=headers)
         try:
-            if local.stat().st_size > 25_000_000:
+            if local.stat().st_size > THUMB_SOURCE_MAX:
                 return FileResponse(local)
             raw = local.read_bytes()
         except OSError as exc:
             raise HTTPException(404, "Thumbnail unavailable") from exc
-        data, ctype = shrink_thumb(raw[:8_000_000], "image/jpeg")
+        # A cut-off file can't be decoded, so a large picture never got a thumbnail.
+        guess = mimetypes.guess_type(local.name)[0] or "application/octet-stream"
+        data, ctype = shrink_thumb(raw, guess)
         _thumb_cache_put(cache_key, (data, ctype))
         return Response(content=data, media_type=ctype, headers=headers)
     headers = {"Cache-Control": "public, max-age=3600"}
@@ -676,7 +682,7 @@ def thumb(request: Request, u: str = Query(min_length=8), full: bool = False) ->
     if not _safe_thumb_url(u):
         raise HTTPException(400, "Bad thumbnail URL")
     try:
-        data, ctype = _fetch_thumb(u)
+        data, ctype = _fetch_thumb(u, FULL_IMAGE_MAX if full else THUMB_SOURCE_MAX)
     except Exception as exc:
         raise HTTPException(404, "Thumbnail unavailable") from exc
     if full:

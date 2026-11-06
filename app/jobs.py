@@ -349,7 +349,9 @@ def requeue_job(job_id: str) -> dict[str, Any] | None:
         job["pid"] = None
         if job.get("kind") == "scan":
             # The re-run lists the album again; keeping old items would double them.
+            # Start again from the first page, or Load more's range loses the start.
             job["items"] = []
+            job["range"] = job.pop("first_range", job.get("range") or "")
         else:
             job["files"] = []
             job["output_path"] = ""
@@ -376,6 +378,7 @@ def extend_scan(job_id: str, range_spec: str) -> dict[str, Any] | None:
         job = _jobs.get(job_id)
         if not job or job.get("kind") != "scan" or job.get("status") not in TERMINAL:
             return None
+        job.setdefault("first_range", job.get("range") or "")
         job["status"] = "queued"
         job["range"] = range_spec
         job["error"] = ""

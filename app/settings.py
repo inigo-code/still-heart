@@ -86,6 +86,8 @@ def _read() -> tuple[dict, bool]:
         data = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return deepcopy(DEFAULTS), True
+    if not isinstance(data, dict):
+        return deepcopy(DEFAULTS), True
     merged = deepcopy(DEFAULTS)
     merged.update({k: v for k, v in data.items() if k in DEFAULTS})
     persist = any(key not in data for key in DEFAULTS)
@@ -106,7 +108,10 @@ def load() -> dict:
 
 def _write(current: dict) -> None:
     SETTINGS_PATH.parent.mkdir(parents=True, exist_ok=True)
-    SETTINGS_PATH.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    # Written beside the real file first, so a crash can't leave half a settings file.
+    temp = SETTINGS_PATH.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    temp.replace(SETTINGS_PATH)
 
 
 def _clamp(value, lo: int | float, hi: int | float, cast, name: str):

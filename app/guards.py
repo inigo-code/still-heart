@@ -63,8 +63,17 @@ def _output_dir() -> Path:
 
 def _tick() -> None:
     cfg = settings.load()
-    out = _output_dir()
-    disk = disk_for(out)
+    try:
+        out = _output_dir()
+        disk = disk_for(out)
+    except OSError:
+        # An unplugged drive must not stop the app opening. Hold the queue instead.
+        _set_state(
+            level="critical",
+            blocked=True,
+            alerts=["The download folder isn't available. Plug the drive back in, or choose another folder in Settings."],
+        )
+        return
     min_free = float(cfg.get("min_free_gb") or 0)
     warn_free = float(cfg.get("warn_free_gb") or 0)
     alerts: list[str] = []
