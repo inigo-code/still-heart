@@ -47,3 +47,9 @@ You must have the right to save the files. Still Heart does not bypass paywalls,
 ## Stack
 
 Python / FastAPI on `127.0.0.1` only, gallery-dl, optional ffmpeg, WebView2 window.
+
+## Source
+
+This code is published so you can read it and build it yourself. All rights reserved: there is no open-source licence. Third-party parts keep their own licences, listed in [NOTICE](NOTICE).
+
+Downloads and the website: [Still Heart](https://inigo-code.github.io/still-heart-site/). Bugs and ideas: inigo@tosstheworld.org.

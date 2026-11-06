@@ -1,0 +1,13 @@
+gallery-dl
+----------
+Included unmodified as a separate program in the built exe. Not in this repository.
+GPL-2.0. Source: https://github.com/mikf/gallery-dl
+
+FFmpeg
+------
+Included unmodified as a separate program in the built exe. Not in this repository.
+GPL. Source and terms: https://ffmpeg.org/legal.html
+
+Python libraries
+----------------
+Listed in requirements.txt, each under its own licence.
