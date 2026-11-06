@@ -7,7 +7,9 @@ import json
 import os
 import re
 import socket
+import sys
 import ssl
+import subprocess
 import threading
 import time
 import urllib.error
@@ -23,7 +25,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, engine, guards, jobs, scheduler, settings
+from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, scheduler, settings
 from app.paths import DATA_DIR, WEB_DIR, ensure_dirs, free_port
 from app.runtime import ensure_local_gallery_dl, invalidate_runtime, runtime_report, warm_runtime
 
@@ -105,6 +107,11 @@ class OpenIn(BaseModel):
     path: str = ""
 
 
+class PickIn(BaseModel):
+    kind: str
+    initial: str = ""
+
+
 def _valid_http(url: str) -> bool:
     parsed = urlparse(url.strip())
     return parsed.scheme in {"http", "https"} and bool(parsed.netloc)
@@ -118,7 +125,7 @@ def _split_urls(raw: str) -> list[str]:
     """
     parts: list[str] = []
     for token in raw.split():
-        for piece in re.split(r"[,;]+(?=https?://)", token):
+        for piece in re.split(r"[,;]+(?=https?://)", token, flags=re.IGNORECASE):
             piece = piece.strip().rstrip(",;")
             if piece:
                 parts.append(piece)
@@ -427,23 +434,40 @@ def update_engine() -> dict:
     return {"engine": status, "runtime": runtime_report(quick=False), "log": status.get("log") or ""}
 
 
+def _reveal(path: Path) -> None:
+    """Open a folder, or select a file in Explorer."""
+    if sys.platform == "win32" and path.is_file():
+        subprocess.run(["explorer", f"/select,{path}"], check=False)
+        return
+    os.startfile(str(path))  # type: ignore[attr-defined]
+
+
 @app.post("/api/open")
 def open_path(body: OpenIn) -> dict:
     target = (body.path or "").strip()
     if not target:
         target = str(settings.output_dir())
     path = Path(target).expanduser()
-    if path.is_file():
-        path = path.parent
     if not path.exists():
         raise HTTPException(404, "Folder not found")
     if not any(_safe_under(root, path) for root in (settings.output_dir(), DATA_DIR)):
         raise HTTPException(403, "That folder is outside your downloads")
     try:
-        os.startfile(str(path))  # type: ignore[attr-defined]
+        _reveal(path)
     except OSError as exc:
         raise HTTPException(400, str(exc)) from exc
     return {"ok": True, "path": str(path)}
+
+
+@app.post("/api/pick")
+def pick(body: PickIn) -> dict:
+    try:
+        path = dialogs.pick_path(body.kind, body.initial)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"path": path}
 
 
 def _safe_under(root: Path, target: Path) -> bool:
@@ -455,10 +479,12 @@ def _safe_under(root: Path, target: Path) -> bool:
 
 
 @app.get("/api/library")
-def library(limit: int = 240) -> dict:
+def library(limit: int = 240, q: str = "", kind: str = "all") -> dict:
     root = settings.output_dir()
     files: list[dict] = []
     cap = max(24, min(800, int(limit)))
+    needle = q.strip().lower()
+    wanted = kind if kind in {"image", "gif", "video"} else "all"
     try:
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if not d.startswith(".")]
@@ -471,14 +497,19 @@ def library(limit: int = 240) -> dict:
                     stat = path.stat()
                 except OSError:
                     continue
-                rel = str(path.relative_to(root))
+                rel = str(path.relative_to(root)).replace("\\", "/")
+                item_kind = "video" if ext in VIDEO_EXTS else "gif" if ext == "gif" else "image"
+                if wanted != "all" and item_kind != wanted:
+                    continue
+                if needle and needle not in rel.lower() and needle not in name.lower():
+                    continue
                 files.append(
                     {
                         "name": name,
                         "path": str(path),
-                        "rel": rel.replace("\\", "/"),
+                        "rel": rel,
                         "ext": ext,
-                        "kind": "video" if ext in VIDEO_EXTS else "gif" if ext == "gif" else "image",
+                        "kind": item_kind,
                         "size": stat.st_size,
                         "mtime": stat.st_mtime,
                     }
@@ -619,7 +650,24 @@ def thumb(request: Request, u: str = Query(min_length=8), full: bool = False) ->
         raise HTTPException(403, "Cross-site thumbnail request blocked")
     local = Path(u)
     if local.is_file() and _safe_under(settings.output_dir(), local):
-        return FileResponse(local)
+        ext = local.suffix.lower().lstrip(".")
+        if full or ext in VIDEO_EXTS:
+            return FileResponse(local)
+        cache_key = str(local.resolve())
+        cached_local = _thumb_cache_get(cache_key)
+        headers = {"Cache-Control": "public, max-age=86400"}
+        if cached_local is not None:
+            data, ctype = cached_local
+            return Response(content=data, media_type=ctype, headers=headers)
+        try:
+            if local.stat().st_size > 25_000_000:
+                return FileResponse(local)
+            raw = local.read_bytes()
+        except OSError as exc:
+            raise HTTPException(404, "Thumbnail unavailable") from exc
+        data, ctype = shrink_thumb(raw[:8_000_000], "image/jpeg")
+        _thumb_cache_put(cache_key, (data, ctype))
+        return Response(content=data, media_type=ctype, headers=headers)
     headers = {"Cache-Control": "public, max-age=3600"}
     cached = None if full else _thumb_cache_get(u)
     if cached is not None:
@@ -661,7 +709,9 @@ async def events() -> StreamingResponse:
             else:
                 idle += 1
                 if idle >= 8:
-                    yield ": keepalive\n\n"
+                    # Disk space changes without a job event. A named event keeps
+                    # the stream alive and lets the window show a pause in time.
+                    yield f"event: disk\ndata: {json.dumps(guards.snapshot())}\n\n"
                     idle = 0
             await asyncio.sleep(0.4)
 

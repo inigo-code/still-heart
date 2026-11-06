@@ -204,12 +204,12 @@ def create_job(
 ) -> dict[str, Any]:
     clean_url = url.strip()
     with _lock:
-        if kind == "download":
+        if kind in {"download", "scan"}:
             for existing in _jobs.values():
                 if (
                     existing.get("url") == clean_url
-                    and existing.get("kind") == "download"
-                    and existing.get("range") == range_spec
+                    and existing.get("kind") == kind
+                    and (existing.get("range") or "") == (range_spec or "")
                     and existing.get("status") in ACTIVE
                 ):
                     copied = snapshot(existing)

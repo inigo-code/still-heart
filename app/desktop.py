@@ -17,7 +17,7 @@ if "--run-gallery-dl" in sys.argv:
 
     raise SystemExit(gallery_dl.main())
 
-from app.paths import free_port, prune_temp_extractions
+from app.paths import free_port, prune_temp_extractions, user_dir
 
 prune_temp_extractions()
 
@@ -26,7 +26,7 @@ WEBVIEW2_DOWNLOAD = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 
 def _log_path() -> Path:
     if getattr(sys, "frozen", False):
-        return Path(sys.executable).resolve().parent / "stills.log"
+        return user_dir() / "stills.log"
     return Path(__file__).resolve().parent.parent / "stills.log"
 
 

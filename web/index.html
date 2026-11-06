@@ -5,15 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Stills</title>
     <style>html, body { margin: 0; background: #0a0f14; }</style>
-    <link rel="stylesheet" href="/static/styles.css?v=21" />
-    <link rel="icon" type="image/png" href="/static/logo.png?v=21" />
-    <link rel="icon" type="image/x-icon" href="/static/stills.ico?v=21" />
+    <link rel="stylesheet" href="/static/styles.css?v=25" />
+    <link rel="icon" type="image/png" href="/static/logo.png?v=25" />
+    <link rel="icon" type="image/x-icon" href="/static/stills.ico?v=25" />
   </head>
   <body>
     <div class="app">
       <aside class="sidebar">
         <div class="brand">
-          <img src="/static/logo.png?v=21" alt="Stills" />
+          <img src="/static/logo.png?v=25" alt="Stills" />
           <div>
             <strong>Stills</strong>
             <span>Bulk Picture Downloader</span>
@@ -32,6 +32,10 @@
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>
             <span>History</span> <b id="nav-count-history" hidden></b>
           </button>
+          <button class="tab" data-view="library">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><path d="M3 17h7M14 17h7M3 21h7M14 21h7"/></svg>
+            <span>Library</span> <b id="nav-count-library" hidden></b>
+          </button>
           <button class="tab" data-view="sites">
             <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18M12 3a15 15 0 0 0 0 18"/></svg>
             <span>Sites</span>
@@ -47,7 +51,7 @@
             <i><b id="disk-bar"></b></i>
           </div>
           <div class="side-meta">
-            <span id="app-version">v1.0.0</span>
+            <span id="app-version">v1.0.1</span>
             <span id="credit">Built with ❤️ by Inigo Joseph</span>
           </div>
         </div>
@@ -118,8 +122,19 @@
                 Grab
               </button>
             </div>
-            <p class="hint"><b>Scan</b> lists pictures so you can select which to download. <b>Grab</b> downloads the whole album.</p>
+            <p class="hint" id="url-count">Paste one or more links. Scan lists pictures so you can choose. Grab downloads the whole album.</p>
           </section>
+
+          <div class="list-tools" id="list-tools">
+            <input id="job-search" type="search" placeholder="Filter by title, site, or URL" />
+            <div class="pills" id="history-pills" hidden>
+              <button type="button" class="pill is-on" data-status="all">All</button>
+              <button type="button" class="pill" data-status="saved">Saved</button>
+              <button type="button" class="pill" data-status="issues">Needs attention</button>
+              <button type="button" class="pill" data-status="scans">Scans</button>
+            </div>
+            <span class="hint" id="list-count"></span>
+          </div>
 
           <section class="jobs" id="jobs"></section>
 
@@ -142,18 +157,39 @@
             </div>
             <div class="toolbar">
               <label class="check"><input type="checkbox" id="select-all" /> Select visible</label>
+              <button type="button" class="btn" id="select-none">Select none</button>
               <button type="button" class="btn" id="invert-sel">Invert selection</button>
               <button type="button" class="btn" id="load-more">Load more</button>
+              <button type="button" class="btn" id="retry-scan" hidden>Retry scan</button>
               <span class="hint" id="sel-count">0 selected</span>
-              <span class="grow"></span>
-              <button type="button" class="btn" id="clear-preview">Clear preview</button>
-              <button type="button" class="btn primary" id="download-selected">Download selected</button>
+              <div class="toolbar-actions">
+                <button type="button" class="btn" id="clear-preview">Clear preview</button>
+                <button type="button" class="btn" id="download-all">Download all</button>
+                <button type="button" class="btn primary" id="download-selected">Download selected</button>
+              </div>
             </div>
             <div class="grid" id="shot-grid"></div>
           </section>
 
+          <section class="panel" id="library-wrap" hidden>
+            <div class="toolbar">
+              <input id="library-search" type="search" placeholder="Filter saved files" />
+              <div class="pills" id="library-pills">
+                <button type="button" class="pill is-on" data-kind="all">All</button>
+                <button type="button" class="pill" data-kind="image">Images</button>
+                <button type="button" class="pill" data-kind="gif">GIFs</button>
+                <button type="button" class="pill" data-kind="video">Videos</button>
+              </div>
+              <span class="hint" id="library-count"></span>
+              <span class="grow"></span>
+              <button type="button" class="btn" id="library-refresh">Refresh</button>
+            </div>
+            <div class="grid" id="library-grid"></div>
+          </section>
+
           <section class="panel" id="sites-wrap" hidden>
             <input id="site-search" type="search" placeholder="Search sites — pixiv, danbooru, twitter, imgur" />
+            <p class="hint" id="sites-meta"></p>
             <div class="site-list" id="sites-grid"></div>
           </section>
 
@@ -173,7 +209,10 @@
             <form class="card" id="settings-form">
               <h2>Download folder</h2>
               <label>Folder
-                <input id="set-output" type="text" spellcheck="false" />
+                <span class="field-row">
+                  <input id="set-output" type="text" spellcheck="false" />
+                  <button type="button" class="btn" id="pick-output">Browse</button>
+                </span>
               </label>
               <p class="hint">Files are saved in subfolders by site and author unless you change organization below.</p>
 
@@ -181,7 +220,10 @@
               <p class="hint">Login-walled sites (Instagram, X, Pixiv…) need a logged-in session. Log into the site in your browser, then pick it here. Firefox exports cookies most reliably; Chrome's newer cookie encryption often blocks this. A Netscape cookies.txt from any browser also works.</p>
               <div class="cols">
                 <label>Cookies file
-                  <input id="set-cookies-file" type="text" placeholder="C:\path\cookies.txt" spellcheck="false" />
+                  <span class="field-row">
+                    <input id="set-cookies-file" type="text" placeholder="C:\path\cookies.txt" spellcheck="false" />
+                    <button type="button" class="btn" id="pick-cookies">Browse</button>
+                  </span>
                 </label>
                 <label>Read cookies from browser
                   <select id="set-cookies-browser">
@@ -218,7 +260,7 @@
                   </select>
                 </label>
               </div>
-              <div class="cols">
+              <div class="cols" id="custom-fields" hidden>
                 <label>Custom folders
                   <input id="set-dir-custom" type="text" placeholder="{category}/{author}" spellcheck="false" />
                 </label>
@@ -325,12 +367,17 @@
       </div>
     </div>
 
+    <div class="drop" id="drop" hidden>Drop links to add them to the queue</div>
+
     <div class="lightbox" id="lightbox" hidden>
+      <button type="button" class="btn lightbox-nav lightbox-prev" id="lightbox-prev" aria-label="Previous">Prev</button>
       <button type="button" class="btn lightbox-close" id="lightbox-close">Close</button>
+      <button type="button" class="btn lightbox-nav lightbox-next" id="lightbox-next" aria-label="Next">Next</button>
       <img id="lightbox-img" alt="" />
+      <video id="lightbox-video" controls hidden></video>
       <p id="lightbox-cap"></p>
     </div>
 
-    <script src="/static/app.js?v=21"></script>
+    <script src="/static/app.js?v=25"></script>
   </body>
 </html>

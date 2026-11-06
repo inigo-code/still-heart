@@ -11,7 +11,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\build.ps1
 ```
 
-That produces **one file**: `dist\Stills.exe`. Copy it anywhere and double-click. gallery-dl is inside. First launch can take 15–30 seconds while it unpacks. After that, `data\`, `downloads\`, and `stills.log` appear next to the exe.
+That produces **one file**: `dist\Stills.exe`. Copy it anywhere and double-click. gallery-dl is inside. First launch can take 15–30 seconds while it unpacks. The app then keeps `data\`, `downloads\`, and `stills.log` in a `Stills` folder next to the exe. If the exe is already inside a folder named Stills, it uses that folder.
 
 Windows needs [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (already on Windows 11 and most Windows 10).
 

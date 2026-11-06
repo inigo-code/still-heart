@@ -59,6 +59,16 @@ def _friendly_error(text: str) -> str:
     return t
 
 
+def _tail_problem(stderr: str) -> str:
+    """Last gallery-dl error or warning, for a download that saved some files and then failed."""
+    for line in reversed((stderr or "").splitlines()):
+        text = line.strip()
+        low = text.lower()
+        if text and ("[error]" in low or "[warning]" in low or "exception" in low):
+            return _friendly_error(text[:400])
+    return ""
+
+
 def range_start(range_spec: str) -> int:
     text = (range_spec or "").strip()
     if not text:
@@ -453,8 +463,16 @@ def _unregister(job_id: str) -> None:
 
 
 def _under_base(base: Path, candidate: Path) -> bool:
-    b = os.path.normcase(str(base))
-    c = os.path.normcase(str(candidate))
+    """True when candidate is base or a file inside it.
+
+    gallery-dl prints both ``C:\\dir\\file`` and ``C:/dir/file``. A plain
+    prefix check would also treat ``downloads-old`` as inside ``downloads``.
+    """
+    try:
+        b = os.path.normcase(os.path.normpath(str(base)))
+        c = os.path.normcase(os.path.normpath(str(candidate)))
+    except (TypeError, ValueError):
+        return False
     return c == b or c.startswith(b + os.sep)
 
 
@@ -701,11 +719,17 @@ def run_job(job_id: str) -> None:
 
         current = jobs.peek(job_id) or job
         progress = current.get("progress") or {}
-        status = download_status(code, int(progress.get("saved") or 0), int(progress.get("skipped") or 0))
+        saved = int(progress.get("saved") or 0)
+        skipped = int(progress.get("skipped") or 0)
+        status = download_status(code, saved, skipped)
         if status:
+            if status == "done" and not saved and not skipped:
+                jobs.append_log(job_id, "Nothing new. The album was empty, or every file was already saved.")
+            problem = _tail_problem(stderr) if status == "partial" else ""
             jobs.update_job(
                 job_id,
                 status=status,
+                error=problem,
                 ended_at=time.time(),
                 pid=None,
                 progress={"percent": 100 if status == "done" else (current.get("progress") or {}).get("percent")},

@@ -26,6 +26,7 @@ hidden += [
     "app.paths",
     "app.guards",
     "app.scheduler",
+    "app.dialogs",
 ]
 
 bins = []

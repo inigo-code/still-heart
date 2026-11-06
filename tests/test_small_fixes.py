@@ -3,7 +3,7 @@ from unittest import mock
 
 from fastapi import HTTPException
 
-from app import engine, main
+from app import dialogs, engine, main, settings
 
 
 class TestUrlSplitting(unittest.TestCase):
@@ -66,6 +66,34 @@ class TestEnqueueShape(unittest.TestCase):
             with self.assertRaises(HTTPException):
                 main.grab(main.UrlsIn(url="https://a/x", range="all of it"))
         create.assert_not_called()
+
+
+class TestSettingsClean(unittest.TestCase):
+    def test_proxy(self):
+        self.assertEqual(settings._clean_proxy(""), "")
+        self.assertEqual(settings._clean_proxy("  http://127.0.0.1:7890 "), "http://127.0.0.1:7890")
+        self.assertEqual(settings._clean_proxy("socks5://127.0.0.1:1080"), "socks5://127.0.0.1:1080")
+        for bad in ("7890", "ftp://127.0.0.1:9", "http://"):
+            with self.assertRaises(ValueError):
+                settings._clean_proxy(bad)
+
+    def test_rate(self):
+        self.assertEqual(settings._clean_rate(""), "")
+        self.assertEqual(settings._clean_rate("off"), "")
+        self.assertEqual(settings._clean_rate("2M"), "2M")
+        self.assertEqual(settings._clean_rate("500 k"), "500k")
+        with self.assertRaises(ValueError):
+            settings._clean_rate("fast")
+
+
+class TestPicker(unittest.TestCase):
+    def test_unknown_kind_does_not_open_a_dialog(self):
+        with self.assertRaises(ValueError):
+            dialogs.pick_path("printer")
+
+    def test_script_reads_the_path_from_the_environment(self):
+        self.assertIn("$env:STILLS_PICK_INITIAL", dialogs._SCRIPT)
+        self.assertNotIn("initial", dialogs._SCRIPT.lower().split("stills_pick_initial")[-1][:40])
 
 
 class TestRetries(unittest.TestCase):

@@ -2,9 +2,10 @@ const $ = (id) => document.getElementById(id);
 
 const COPY = {
   queue: ["Queue", "Paste album URLs. Scan to preview pictures, or Grab to download everything."],
-  preview: ["Preview", "Select pictures, then download selected. Scanning fills this grid as files are found."],
-  history: ["History", "Finished, failed, and stopped albums."],
-  sites: ["Sites", "Search gallery-dl sites. Click a card to paste an example URL."],
+  preview: ["Preview", "Click to select. Shift-click selects a range. Double-click opens a picture."],
+  history: ["History", "Finished downloads and scans. Failed ones stay here so you can retry them."],
+  library: ["Library", "Files already saved in the download folder. Newest first."],
+  sites: ["Sites", "Search gallery-dl sites. Click a card to add an example URL."],
   settings: ["Settings", "Download folder, cookies, filters, and gallery-dl updates."],
 };
 
@@ -31,7 +32,16 @@ const state = {
   health: null,
   disk: null,
   sites: [],
+  sitesTotal: 0,
   logs: {},
+  jobQuery: "",
+  historyStatus: "all",
+  libraryKind: "all",
+  libraryFiles: [],
+  libraryTotal: 0,
+  lightbox: [],
+  lightboxAt: 0,
+  sending: false,
 };
 
 function escapeHtml(s) {
@@ -72,6 +82,22 @@ function hostOf(url) {
 function thumbSrc(url) {
   if (!url) return "";
   return `/api/thumb?u=${encodeURIComponent(url)}`;
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.left = "-9999px";
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
 }
 
 async function api(path, opts = {}) {
@@ -116,6 +142,7 @@ function askConfirm({ kicker = "Please confirm", title = "Are you sure?", copy =
     modal.onclick = (e) => {
       if (e.target === modal) finish(false);
     };
+    $("confirm-ok").focus();
   });
   return confirmBusy;
 }
@@ -130,26 +157,36 @@ function toast(msg, kind = "ok") {
   setTimeout(() => {
     el.classList.add("out");
     setTimeout(() => el.remove(), 220);
-  }, 3200);
-  const banner = $("banner");
-  if (kind === "critical") {
-    banner.hidden = false;
-    banner.className = "banner critical";
-    banner.textContent = msg;
-  } else {
-    banner.hidden = true;
-  }
+  }, 4200);
 }
 
+const LIVE = ["queued", "starting", "scanning", "downloading", "stopping"];
+const TERMINAL = ["done", "error", "stopped", "partial"];
+
 function activeJobs() {
-  return state.jobs.filter(
-    (j) =>
-      ["queued", "starting", "scanning", "downloading", "stopping"].includes(j.status) ||
-      (j.kind === "scan" && j.status === "error")
-  );
+  return state.jobs.filter((j) => LIVE.includes(j.status));
 }
 function historyJobs() {
-  return state.jobs.filter((j) => ["done", "error", "stopped", "partial"].includes(j.status) && j.kind !== "scan");
+  return state.jobs.filter((j) => TERMINAL.includes(j.status));
+}
+function issueJobs() {
+  return state.jobs.filter((j) => ["error", "stopped", "partial"].includes(j.status));
+}
+function matchesQuery(job, q) {
+  if (!q) return true;
+  return `${job.title || ""} ${job.url || ""} ${job.extractor || ""} ${job.author || ""} ${job.error || ""}`
+    .toLowerCase()
+    .includes(q);
+}
+function listedJobs() {
+  const q = state.jobQuery.trim().toLowerCase();
+  let list = state.view === "history" ? historyJobs() : activeJobs();
+  if (state.view === "history") {
+    if (state.historyStatus === "saved") list = list.filter((j) => j.status === "done" && j.kind !== "scan");
+    else if (state.historyStatus === "issues") list = list.filter((j) => ["error", "stopped", "partial"].includes(j.status));
+    else if (state.historyStatus === "scans") list = list.filter((j) => j.kind === "scan");
+  }
+  return list.filter((j) => matchesQuery(j, q));
 }
 function scanJobs() {
   return state.jobs.filter((j) => j.kind === "scan");
@@ -177,16 +214,25 @@ function setView(view) {
   $("view-title").textContent = title;
   $("view-lede").textContent = lede;
   $("composer").hidden = view !== "queue";
+  $("list-tools").hidden = view !== "queue" && view !== "history";
+  $("history-pills").hidden = view !== "history";
   $("jobs").hidden = view !== "queue" && view !== "history";
   $("preview-wrap").hidden = view !== "preview";
+  $("library-wrap").hidden = view !== "library";
   $("sites-wrap").hidden = view !== "sites";
   $("settings-wrap").hidden = view !== "settings";
   $("layout-switch").hidden = view !== "queue" && view !== "history";
   $("stop-all").hidden = view !== "queue";
   $("retry-all").hidden = view !== "history";
   $("clear-history").hidden = view !== "history";
-  if (view === "sites") loadSites();
+  if (view === "sites") loadSites($("site-search").value || "");
   if (view === "preview") pullScanItems(true);
+  if (view === "library") {
+    if (!$("library-grid").children.length) {
+      $("library-grid").innerHTML = emptyHtml("Loading library…", "Reading the download folder.", "grid");
+    }
+    loadLibrary();
+  }
   render();
 }
 
@@ -229,25 +275,40 @@ function renderDisk() {
   const el = $("disk");
   el.classList.toggle("warn", d.level === "warn");
   el.classList.toggle("critical", d.level === "critical");
+  el.title = d.total_gb ? `${d.free_gb} GB free of ${d.total_gb} GB` : "Free disk space";
   $("disk-bar").style.width = `${Math.min(100, d.percent_used || 0)}%`;
   $("disk-free").textContent = d.free_gb != null ? `${d.free_gb} GB free` : "Checking disk…";
+  const banner = $("banner");
+  const note = (d.alerts && d.alerts[0]) || "";
+  if (note && (d.level === "warn" || d.level === "critical")) {
+    banner.hidden = false;
+    banner.className = d.level === "critical" ? "banner critical" : "banner";
+    banner.textContent = note;
+  } else {
+    banner.hidden = true;
+  }
 }
 
 function renderCounts() {
   const q = activeJobs().length;
-  const p = (currentScan() && (currentScan().item_count || (state.scanItems[currentScan().id] || []).length)) || 0;
-  const h = historyJobs().length;
+  const scans = scanJobs().filter((j) => (j.item_count || 0) > 0 || LIVE.includes(j.status)).length;
+  const issues = issueJobs().length;
   const set = (id, n) => {
     const el = $(id);
     if (!el) return;
     el.hidden = !n;
-    el.textContent = n || "";
+    el.textContent = n > 99 ? "99+" : String(n);
   };
   set("nav-count-queue", q);
-  set("nav-count-preview", p);
-  set("nav-count-history", h);
+  set("nav-count-preview", scans);
+  set("nav-count-history", issues);
   $("rec-pill").hidden = !q;
-  $("rec-count").textContent = `${q} active`;
+  $("rec-count").textContent = q === 1 ? "1 active" : `${q} active`;
+  if (state.view === "queue") $("stop-all").hidden = !q;
+  if (state.view === "history") {
+    $("retry-all").hidden = !issues;
+    $("clear-history").hidden = !historyJobs().length;
+  }
 }
 
 function emptyHtml(title, copy, icon = "inbox", action = "") {
@@ -255,17 +316,21 @@ function emptyHtml(title, copy, icon = "inbox", action = "") {
 }
 
 function statusChip(job) {
-  const live = ["queued", "starting", "scanning", "downloading", "stopping"].includes(job.status);
+  const live = LIVE.includes(job.status);
   const ok = job.status === "done";
   const bad = job.status === "error";
-  const cls = live ? "live" : ok ? "ok" : bad ? "bad" : "";
-  const label = job.kind === "scan" && job.status === "queued" ? "scan queued" : job.status;
+  const warn = job.status === "partial" || job.status === "stopped";
+  const cls = live ? "live" : ok ? "ok" : bad ? "bad" : warn ? "warn" : "";
+  let label = job.status;
+  if (job.kind === "scan" && job.status === "queued") label = "scan queued";
+  if (job.status === "partial") label = "partial";
+  if (state.disk && state.disk.blocked && job.status === "queued") label = "paused";
   return `<span class="chip ${cls}">${escapeHtml(label)}</span>`;
 }
 
 function jobSig(job) {
   const p = job.progress || {};
-  return [job.id, job.status, p.saved, p.current, p.percent, p.total, p.item_count, job.status_line, job.error, job.title, job.size, job.size_speed, p.speed, p.skipped, !!state.logs[job.id]].join("|");
+  return [job.id, job.status, p.saved, p.current, p.percent, p.total, job.item_count, job.status_line, job.error, job.title, job.size, job.size_speed, p.speed, p.skipped, !!state.logs[job.id], state.disk && state.disk.blocked ? 1 : 0].join("|");
 }
 
 function jobCard(job) {
@@ -282,9 +347,8 @@ function jobCard(job) {
     pct = 42;
   }
   const phLabel = (job.extractor || hostOf(job.url) || "stills").toLowerCase();
-  const phLabelJs = phLabel.replace(/'/g, "\\'");
   const thumb = job.thumbnail
-    ? `<img class="thumb" src="${escapeHtml(thumbSrc(job.thumbnail))}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'thumb ph',title:'${escapeHtml(phLabel)}',textContent:'${phLabelJs}'}))" />`
+    ? `<img class="thumb" src="${escapeHtml(thumbSrc(job.thumbnail))}" alt="" data-ph="${escapeHtml(phLabel)}" />`
     : `<div class="thumb ph" title="${escapeHtml(job.extractor || hostOf(job.url))}">${escapeHtml(phLabel)}</div>`;
   const count =
     job.kind === "scan"
@@ -324,10 +388,14 @@ function jobCard(job) {
   if (job.output_path || job.files_count) {
     actions.push(`<button class="icon-btn" data-act="open" data-id="${job.id}">Open</button>`);
   }
-  if (job.kind === "scan" && (job.status === "done" || job.item_count)) {
+  if (job.kind === "scan" && ((job.item_count || 0) > 0 || job.status === "done" || job.status === "partial")) {
     actions.push(`<button class="icon-btn" data-act="preview" data-id="${job.id}">Preview</button>`);
   }
+  actions.push(`<button class="icon-btn" data-act="copy" data-id="${job.id}">Copy link</button>`);
   actions.push(`<button class="icon-btn" data-act="log" data-id="${job.id}">Log</button>`);
+  if (job.status === "queued" || TERMINAL.includes(job.status)) {
+    actions.push(`<button class="icon-btn remove" data-act="remove" data-id="${job.id}">Remove</button>`);
+  }
   const log = state.logs[job.id];
   const title = job.title && job.title !== job.url ? job.title : hostOf(job.url);
   return `<article class="job" data-status="${escapeHtml(job.status)}" data-id="${job.id}" data-sig="${escapeHtml(jobSig(job))}">
@@ -336,15 +404,21 @@ function jobCard(job) {
       <h3 title="${escapeHtml(job.title || job.url)}">${escapeHtml(title)}</h3>
       <div class="sub">${statusChip(job)}<span>${escapeHtml(job.extractor || hostOf(job.url))}</span><span>${escapeHtml(count)}</span><span class="elapsed">${fmtElapsed(p.elapsed)}</span></div>
       ${stats.length ? `<div class="stats">${escapeHtml(stats.join("  ·  "))}</div>` : ""}
-      <div class="job-url">${escapeHtml(job.url)}</div>
+      <div class="job-url" data-act="copy" data-id="${job.id}" title="Copy link">${escapeHtml(job.url)}</div>
+      ${pausedNote(job)}
       ${job.status_line ? `<div class="status-line">${escapeHtml(job.status_line)}</div>` : ""}
       ${negs && job.kind === "scan" ? `<div class="negs">${negs}</div>` : ""}
       <div class="bar${indeterminate ? " indeterminate" : ""}"><i style="width:${pct}%"></i></div>
-      ${job.error ? `<div class="sub" style="color:#ffb3b9">${escapeHtml(job.error)}</div>` : ""}
+      ${job.error ? `<div class="job-error">${escapeHtml(job.error)}</div>` : ""}
     </div>
     <div class="actions">${actions.join("")}</div>
     ${log ? `<pre class="job-log">${escapeHtml(log.join("\n"))}</pre>` : ""}
   </article>`;
+}
+
+function pausedNote(job) {
+  if (!(state.disk && state.disk.blocked && job.status === "queued")) return "";
+  return `<div class="status-line">Waiting for free disk space.</div>`;
 }
 
 function scanItemList(scan) {
@@ -375,10 +449,16 @@ function shotHtml(it) {
 }
 
 function renderPreview() {
-  const scans = scanJobs().filter((j) => (j.item_count || 0) > 0 || j.status === "scanning");
+  // Keep the scan the user just opened, even when it failed or found nothing.
+  // Older empty scans stay in History so this menu does not grow forever.
+  const scans = scanJobs().filter((j) => j.id === state.scanId || (j.item_count || 0) > 0 || LIVE.includes(j.status));
   const sel = $("preview-scan");
   const currentIds = scans.map((s) => s.id);
-  const optionLabel = (s) => `${s.title || hostOf(s.url)} (${s.item_count || 0})`;
+  const optionLabel = (s) => {
+    const n = s.item_count || 0;
+    const mark = s.status === "error" ? "failed" : s.status === "scanning" ? "scanning" : n ? String(n) : s.status;
+    return `${s.title || hostOf(s.url)} (${mark})`;
+  };
   if (sel.dataset.ids === currentIds.join(",")) {
     // Same scans: refresh labels in place so counts and titles stay current.
     scans.forEach((s, i) => {
@@ -390,23 +470,39 @@ function renderPreview() {
     sel.innerHTML = scans.length
       ? scans.map((s) => `<option value="${s.id}">${escapeHtml(optionLabel(s))}</option>`).join("")
       : `<option value="">No scans yet</option>`;
-    if (state.scanId && currentIds.includes(state.scanId)) sel.value = state.scanId;
-    else if (scans[0]) {
-      selectScan(scans[0].id);
-      sel.value = scans[0].id;
-    }
+  }
+  if (state.scanId && currentIds.includes(state.scanId)) sel.value = state.scanId;
+  else if (scans[0]) {
+    selectScan(scans[0].id);
+    sel.value = scans[0].id;
   }
   const scan = currentScan();
   const itemsAll = scanItemList(scan);
   $("preview-title").textContent = scan ? scan.title || hostOf(scan.url) : "No preview yet";
   const live = scan && scan.status === "scanning" ? " · scanning…" : "";
-  $("preview-sub").textContent = scan
-    ? `${scan.item_count || itemsAll.length} files${live} · ${scan.extractor || hostOf(scan.url)} · range ${scan.range || "all"}`
-    : "Scan an album to list its pictures here.";
+  const sub = $("preview-sub");
+  sub.classList.toggle("bad", !!(scan && scan.status === "error"));
+  sub.textContent = !scan
+    ? "Scan an album to list its pictures here."
+    : scan.status === "error"
+      ? scan.error || "This scan failed."
+      : `${scan.item_count || itemsAll.length} files${live} · ${scan.extractor || hostOf(scan.url)} · range ${scan.range || "all"}`;
+  const busy = scan && LIVE.includes(scan.status);
+  $("load-more").disabled = !scan || busy;
+  $("retry-scan").hidden = !(scan && ["error", "stopped", "partial"].includes(scan.status));
+  $("download-all").disabled = !itemsAll.length;
+  $("download-all").textContent = itemsAll.length ? `Download all (${itemsAll.length})` : "Download all";
   const grid = $("shot-grid");
   if (!scan || !(scan.item_count || itemsAll.length)) {
-    grid.innerHTML = emptyHtml("Nothing to preview", "Paste a URL on Queue, then click Scan. Pictures appear here as they are found.", "search");
+    grid.innerHTML = emptyHtml(
+      scan && scan.status === "error" ? "Scan failed" : "Nothing to preview",
+      scan && scan.status === "error" ? (scan.error || "Retry the scan, or check cookies and the URL.") : "Paste a URL on Queue, then click Scan. Pictures appear here as they are found.",
+      "search"
+    );
     $("sel-count").textContent = "0 selected";
+    $("download-selected").textContent = "Download selected";
+    $("download-selected").disabled = true;
+    $("select-all").checked = false;
     grid.dataset.key = "";
     return;
   }
@@ -424,18 +520,28 @@ function renderPreview() {
     });
   }
   const visSel = items.filter((it) => state.selected.has(it.index)).length;
-  $("sel-count").textContent = `${state.selected.size} selected · ${items.length} visible`;
+  const n = state.selected.size;
+  $("sel-count").textContent = `${n} selected · ${items.length} shown`;
   $("select-all").checked = items.length > 0 && visSel === items.length;
+  $("download-selected").textContent = n ? `Download ${n}` : "Download selected";
+  $("download-selected").disabled = !n;
 }
 
 function renderSites() {
   const items = state.sites || [];
+  const meta = $("sites-meta");
+  if (meta) {
+    meta.textContent = !state.sitesTotal
+      ? ""
+      : items.length < state.sitesTotal
+        ? `Showing ${items.length} of ${state.sitesTotal} sites. Search to narrow the list.`
+        : `${state.sitesTotal} sites`;
+  }
   if (!items.length) {
     $("sites-grid").innerHTML = emptyHtml("No sites loaded yet", "gallery-dl is still listing supported sites, or it is not installed.", "globe");
     return;
   }
   $("sites-grid").innerHTML = items
-    .slice(0, 200)
     .map(
       (s) => `<button type="button" class="site-card" data-example="${escapeHtml(s.example || "")}" data-label="${escapeHtml(s.label)}">
         <strong>${escapeHtml(s.label)}</strong>
@@ -445,17 +551,48 @@ function renderSites() {
     .join("");
 }
 
-function renderJobs() {
-  const list = state.view === "history" ? historyJobs() : state.view === "queue" ? activeJobs() : [];
-  const el = $("jobs");
-  el.classList.toggle("layout-thumbs", state.layout === "thumbs");
-  el.classList.toggle("layout-list", state.layout === "list");
-  if (state.view === "queue" && !list.length) {
-    el.innerHTML = emptyHtml("Nothing in the queue", "Paste URLs above, then Scan or Grab.", "download");
+function renderLibrary() {
+  const grid = $("library-grid");
+  const files = state.libraryFiles || [];
+  const total = state.libraryTotal || files.length;
+  $("library-count").textContent = total ? `${files.length} of ${total}` : "";
+  if (!files.length) {
+    grid.innerHTML = emptyHtml(
+      "No saved files yet",
+      "Grab an album, or change the download folder in Settings. Pictures you save show up here.",
+      "grid"
+    );
     return;
   }
-  if (state.view === "history" && !list.length) {
-    el.innerHTML = emptyHtml("No history yet", "Finished albums will collect here.", "clock");
+  grid.innerHTML = files
+    .map((file, i) => {
+      const src = file.kind === "video" ? "" : thumbSrc(file.path);
+      const dim = file.kind === "video" ? "video" : fmtBytes(file.size);
+      return `<button type="button" class="shot" data-lib="${i}" title="${escapeHtml(file.rel)}">
+        ${src ? `<img src="${escapeHtml(src)}" alt="" loading="lazy" decoding="async" />` : `<div class="ph">${escapeHtml((file.ext || file.kind || "").toUpperCase())}</div>`}
+        <span class="kind">${escapeHtml(dim)}</span>
+        <span class="cap">${escapeHtml(file.name)}</span>
+        <span class="lib-open" data-act="lib-open" data-path="${escapeHtml(file.path)}">Show</span>
+      </button>`;
+    })
+    .join("");
+}
+
+function renderJobs() {
+  const list = listedJobs();
+  const el = $("jobs");
+  const count = $("list-count");
+  if (count) {
+    const noun = state.view === "history" ? "finished" : "in the queue";
+    count.textContent = list.length ? `${list.length} ${noun}` : "";
+  }
+  el.classList.toggle("layout-thumbs", state.layout === "thumbs");
+  el.classList.toggle("layout-list", state.layout === "list");
+  if (!list.length) {
+    const filtered = state.jobQuery.trim() || (state.view === "history" && state.historyStatus !== "all");
+    el.innerHTML = state.view === "history"
+      ? emptyHtml(filtered ? "Nothing matches" : "No history yet", filtered ? "Try another filter." : "Finished albums will collect here.", "clock")
+      : emptyHtml(filtered ? "Nothing matches" : "Nothing in the queue", filtered ? "Try another filter." : "Paste URLs above, then Scan or Grab.", "download");
     return;
   }
   const stale = el.querySelector(".empty");
@@ -464,6 +601,7 @@ function renderJobs() {
   for (const node of [...el.querySelectorAll(".job")]) {
     if (!keep.has(node.dataset.id)) node.remove();
   }
+  const ordered = [];
   for (const job of list) {
     const sig = jobSig(job);
     const prev = el.querySelector(`.job[data-id="${job.id}"]`);
@@ -473,6 +611,7 @@ function renderJobs() {
       const timer = prev.querySelector(".elapsed");
       const text = fmtElapsed((job.progress || {}).elapsed);
       if (timer && timer.textContent !== text) timer.textContent = text;
+      ordered.push(prev);
       continue;
     }
     const wrap = document.createElement("div");
@@ -484,7 +623,11 @@ function renderJobs() {
     } else {
       el.appendChild(next);
     }
+    ordered.push(next);
   }
+  // Newest job is first in the list. appendChild moves an existing node,
+  // so a download that starts later does not stay stuck at the bottom.
+  for (const node of ordered) el.appendChild(node);
 }
 
 // Carry already-decoded <img> elements from the old card into the rebuilt one
@@ -511,7 +654,8 @@ function render() {
   renderDisk();
   if (state.view === "queue" || state.view === "history") renderJobs();
   if (state.view === "preview") renderPreview();
-  if (state.view === "sites") renderSites();
+  // Library and Sites paint themselves when their data changes. Rebuilding
+  // them on every job tick reloaded every thumbnail and jumped the scroll.
 }
 function scheduleRender() {
   if (renderTimer) return;
@@ -546,12 +690,54 @@ function fillSettings(cfg) {
   $("set-min-free").value = cfg.min_free_gb || 0;
   $("set-proxy").value = cfg.proxy || "";
   $("terms-modal").hidden = !!cfg.accepted_terms;
+  syncCustomFields();
+}
+
+function syncCustomFields() {
+  const custom = $("set-dir-preset").value === "custom" || $("set-name-preset").value === "custom";
+  $("custom-fields").hidden = !custom;
+}
+
+function countPasted(raw) {
+  const parts = String(raw || "")
+    .split(/\s+/)
+    .flatMap((token) => token.split(/[,;]+(?=https?:\/\/)/i))
+    .map((part) => part.trim().replace(/[,;]+$/, ""))
+    .filter(Boolean);
+  const urls = [];
+  let invalid = 0;
+  const seen = new Set();
+  for (const part of parts) {
+    if (!/^https?:\/\/\S+$/i.test(part)) {
+      invalid += 1;
+      continue;
+    }
+    if (seen.has(part)) continue;
+    seen.add(part);
+    urls.push(part);
+  }
+  return { urls, invalid };
+}
+
+function refreshUrlCount() {
+  const el = $("url-count");
+  const { urls, invalid } = countPasted($("url").value);
+  el.classList.toggle("warn", urls.length > 80);
+  if (!urls.length && !invalid) {
+    el.textContent = "Paste one or more links. Scan lists pictures so you can choose. Grab downloads the whole album.";
+    return;
+  }
+  const bits = [`${urls.length} URL${urls.length === 1 ? "" : "s"}`];
+  if (invalid) bits.push(`${invalid} ignored`);
+  if (urls.length > 80) bits.push(`${urls.length - 80} stay in the box after you send`);
+  el.textContent = bits.join(" · ");
 }
 
 async function loadSites(q = "") {
   try {
     const data = await api(`/api/sites?q=${encodeURIComponent(q)}`);
     state.sites = data.sites || [];
+    state.sitesTotal = data.count || state.sites.length;
     renderSites();
   } catch (err) {
     toast(err.message, "critical");
@@ -589,13 +775,31 @@ async function pullScanItems(force = false) {
   }
 }
 
+let libraryTimer = 0;
+async function loadLibrary() {
+  const q = ($("library-search").value || "").trim();
+  try {
+    const data = await api(`/api/library?limit=240&kind=${encodeURIComponent(state.libraryKind)}&q=${encodeURIComponent(q)}`);
+    state.libraryFiles = data.files || [];
+    state.libraryTotal = data.total || 0;
+    if (state.view === "library") renderLibrary();
+    renderCounts();
+  } catch (err) {
+    toast(err.message, "critical");
+  }
+}
+
 async function sendUrls(kind) {
+  if (state.sending) return;
   const url = $("url").value.trim();
   if (!url) {
     toast("Paste at least one URL.", "warn");
     $("url").focus();
     return;
   }
+  state.sending = true;
+  $("grab-btn").disabled = true;
+  $("scan-btn").disabled = true;
   const range = $("range").value.trim();
   const path = kind === "scan" ? "/api/scan" : "/api/grab";
   try {
@@ -604,12 +808,13 @@ async function sendUrls(kind) {
     const fresh = list.filter((j) => !j.already);
     const rest = created.rest || [];
     const notes = [];
-    if (list.length > fresh.length) notes.push(`${list.length - fresh.length} already downloading`);
+    if (list.length > fresh.length) notes.push(`${list.length - fresh.length} already in the queue`);
     if (created.invalid) notes.push(`${created.invalid} not a URL`);
     if (rest.length) notes.push(`${rest.length} over the batch limit left in the box — send again`);
     const extra = notes.length ? ` (${notes.join(", ")})` : "";
     // Leave anything that wasn't queued in the box so it isn't lost.
     $("url").value = rest.join("\n");
+    refreshUrlCount();
     if (!fresh.length) {
       toast(`Nothing new queued${extra}.`, "warn");
       return;
@@ -625,6 +830,10 @@ async function sendUrls(kind) {
     }
   } catch (err) {
     toast(err.message, "critical");
+  } finally {
+    state.sending = false;
+    $("grab-btn").disabled = false;
+    $("scan-btn").disabled = false;
   }
 }
 
@@ -647,8 +856,10 @@ function wire() {
     $("url").value = "";
     $("range").value = "";
     $("url").focus();
+    refreshUrlCount();
     toast("URL box cleared.");
   });
+  $("url").addEventListener("input", refreshUrlCount);
   $("url").addEventListener("keydown", (e) => {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && e.shiftKey) {
       e.preventDefault();
@@ -665,6 +876,7 @@ function wire() {
     const text = await file.text();
     $("url").value = [$("url").value, text].filter(Boolean).join("\n");
     e.target.value = "";
+    refreshUrlCount();
     toast("URL list imported.");
   });
   $("open-folder").addEventListener("click", async () => {
@@ -676,12 +888,15 @@ function wire() {
     }
   });
   $("stop-all").addEventListener("click", async () => {
+    const n = activeJobs().length;
+    if (!n) return;
+    if (!(await askConfirm({ title: `Stop ${n} active job${n === 1 ? "" : "s"}?`, copy: "Files already saved stay on disk.", ok: "Stop all" }))) return;
     await api("/api/jobs/stop-all", { method: "POST" });
     toast("Stopping all jobs.", "warn");
   });
   $("retry-all").addEventListener("click", async () => {
     let n = 0;
-    for (const job of historyJobs().filter((j) => ["error", "stopped", "partial"].includes(j.status))) {
+    for (const job of issueJobs()) {
       try {
         await api(`/api/jobs/${job.id}/retry`, { method: "POST" });
         n += 1;
@@ -725,6 +940,23 @@ function wire() {
         }
         render();
       }
+      if (act === "copy") {
+        const job = state.jobs.find((j) => j.id === id);
+        if (job && job.url) {
+          await copyText(job.url);
+          toast("Link copied.");
+        }
+      }
+      if (act === "remove") {
+        await api(`/api/jobs/${id}`, { method: "DELETE" });
+        delete state.logs[id];
+        delete state.scanItems[id];
+        if (state.scanId === id) {
+          state.scanId = "";
+          state.selected = new Set();
+        }
+        toast("Removed from the list. Files on disk stay.");
+      }
     } catch (err) {
       toast(err.message, "critical");
     }
@@ -744,6 +976,22 @@ function wire() {
   });
   $("preview-search").addEventListener("input", () => {
     $("shot-grid").dataset.key = "";
+    renderPreview();
+  });
+  $("job-search").addEventListener("input", () => {
+    state.jobQuery = $("job-search").value || "";
+    renderJobs();
+  });
+  document.querySelectorAll("#history-pills .pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.historyStatus = btn.dataset.status;
+      document.querySelectorAll("#history-pills .pill").forEach((b) => b.classList.toggle("is-on", b === btn));
+      renderJobs();
+    });
+  });
+  $("select-none").addEventListener("click", () => {
+    state.selected = new Set();
+    state.lastIndex = null;
     renderPreview();
   });
   $("select-all").addEventListener("change", () => {
@@ -797,18 +1045,40 @@ function wire() {
     toast("Preview cleared.");
     renderPreview();
   });
-  $("download-selected").addEventListener("click", async () => {
+  async function downloadIndices(indices) {
     const scan = currentScan();
     if (!scan) return;
-    const indices = [...state.selected];
+    const known = new Set(scanItemList(scan).map((it) => it.index));
+    indices = indices.filter((i) => known.has(i));
     if (!indices.length) {
       toast("Select at least one picture.", "warn");
       return;
     }
+    $("download-selected").disabled = true;
+    $("download-all").disabled = true;
     try {
-      await api(`/api/scans/${scan.id}/download`, { method: "POST", body: JSON.stringify({ indices }) });
-      toast(`Downloading ${indices.length} picture${indices.length === 1 ? "" : "s"}.`);
+      const data = await api(`/api/scans/${scan.id}/download`, { method: "POST", body: JSON.stringify({ indices }) });
+      const n = data && data.jobs ? data.count : 1;
+      toast(n > 1 ? `Queued ${n} downloads.` : `Downloading ${indices.length} file${indices.length === 1 ? "" : "s"}.`);
       setView("queue");
+    } catch (err) {
+      toast(err.message, "critical");
+    } finally {
+      $("download-selected").disabled = !state.selected.size;
+      $("download-all").disabled = !scanItemList(currentScan()).length;
+    }
+  }
+  $("download-selected").addEventListener("click", () => downloadIndices([...state.selected]));
+  $("download-all").addEventListener("click", () => downloadIndices(scanItemList(currentScan()).map((it) => it.index)));
+  $("retry-scan").addEventListener("click", async () => {
+    const scan = currentScan();
+    if (!scan) return;
+    try {
+      await api(`/api/jobs/${scan.id}/retry`, { method: "POST" });
+      state.scanItems[scan.id] = [];
+      state.selected = new Set();
+      $("shot-grid").dataset.key = "";
+      toast("Scan started again.");
     } catch (err) {
       toast(err.message, "critical");
     }
@@ -818,10 +1088,14 @@ function wire() {
     if (!shot) return;
     const index = Number(shot.dataset.index);
     if (e.shiftKey && state.lastIndex != null) {
-      const a = Math.min(state.lastIndex, index);
-      const b = Math.max(state.lastIndex, index);
-      const have = new Set(scanItemList(currentScan()).map((it) => it.index));
-      for (let i = a; i <= b; i += 1) if (have.has(i)) state.selected.add(i);
+      const items = visibleItems(currentScan());
+      const ia = items.findIndex((it) => it.index === state.lastIndex);
+      const ib = items.findIndex((it) => it.index === index);
+      if (ia >= 0 && ib >= 0) {
+        const lo = Math.min(ia, ib);
+        const hi = Math.max(ia, ib);
+        for (let i = lo; i <= hi; i += 1) state.selected.add(items[i].index);
+      }
     } else if (state.selected.has(index)) state.selected.delete(index);
     else state.selected.add(index);
     state.lastIndex = index;
@@ -830,17 +1104,31 @@ function wire() {
   $("shot-grid").addEventListener("dblclick", (e) => {
     const shot = e.target.closest(".shot");
     if (!shot) return;
-    const item = scanItemList(currentScan()).find((it) => it.index === Number(shot.dataset.index));
-    if (!item) return;
-    // /api/thumb now returns small thumbnails; the lightbox wants the real picture.
-    const full = ["image", "gif"].includes(item.kind) && item.url;
-    openLightbox(full || item.thumb || item.url, `${item.filename}.${item.extension || ""}`, !!full);
+    const items = visibleItems(currentScan()).filter((it) => !it.child && (it.thumb || it.url));
+    const index = items.findIndex((it) => it.index === Number(shot.dataset.index));
+    const item = items[index];
+    if (!item) {
+      toast("Nested albums open after you download them.", "warn");
+      return;
+    }
+    openLightbox(
+      items.map((it) => {
+        const full = ["image", "gif"].includes(it.kind) && it.url;
+        const src = full || it.thumb || it.url;
+        return {
+          src: String(src).startsWith("/api/") ? src : thumbSrc(src) + (full ? "&full=1" : ""),
+          cap: `${it.filename}${it.extension ? "." + it.extension : ""}`,
+          video: false,
+        };
+      }),
+      index
+    );
   });
-  $("lightbox-close").addEventListener("click", () => {
-    $("lightbox").hidden = true;
-  });
+  $("lightbox-close").addEventListener("click", closeLightbox);
+  $("lightbox-prev").addEventListener("click", () => showLightboxAt(state.lightboxAt - 1));
+  $("lightbox-next").addEventListener("click", () => showLightboxAt(state.lightboxAt + 1));
   $("lightbox").addEventListener("click", (e) => {
-    if (e.target.id === "lightbox") $("lightbox").hidden = true;
+    if (e.target.id === "lightbox") closeLightbox();
   });
   let siteSearchTimer = 0;
   $("site-search").addEventListener("input", () => {
@@ -850,8 +1138,14 @@ function wire() {
   $("sites-grid").addEventListener("click", (e) => {
     const card = e.target.closest(".site-card");
     if (!card) return;
-    if (card.dataset.example) $("url").value = card.dataset.example;
-    toast("Example URL pasted. Edit it, then Scan or Grab.");
+    const example = card.dataset.example || "";
+    if (example) {
+      const cur = $("url").value.trim();
+      if (!cur) $("url").value = example;
+      else if (!cur.split(/\s+/).includes(example)) $("url").value = `${cur}\n${example}`;
+      refreshUrlCount();
+    }
+    toast(example ? "Example URL added. Edit it, then Scan or Grab." : "This site has no example URL.", example ? "ok" : "warn");
     setView("queue");
     $("url").focus();
   });
@@ -932,25 +1226,174 @@ function wire() {
   $("accept-terms").addEventListener("click", async () => {
     fillSettings(await api("/api/settings", { method: "PUT", body: JSON.stringify({ accepted_terms: true }) }));
   });
-  document.addEventListener("dragover", (e) => e.preventDefault());
-  document.addEventListener("drop", (e) => {
-    e.preventDefault();
-    const text = e.dataTransfer.getData("text/uri-list") || e.dataTransfer.getData("text/plain");
-    if (text) {
-      $("url").value = [$("url").value, text].filter(Boolean).join("\n");
-      toast("URLs added.");
-      setView("queue");
+  $("set-dir-preset").addEventListener("change", syncCustomFields);
+  $("set-name-preset").addEventListener("change", syncCustomFields);
+  async function browse(kind, input) {
+    input.disabled = true;
+    try {
+      const data = await api("/api/pick", { method: "POST", body: JSON.stringify({ kind, initial: input.value || "" }) });
+      if (data.path) input.value = data.path;
+    } catch (err) {
+      toast(err.message, "critical");
+    } finally {
+      input.disabled = false;
     }
+  }
+  $("pick-output").addEventListener("click", () => browse("folder", $("set-output")));
+  $("pick-cookies").addEventListener("click", () => browse("file", $("set-cookies-file")));
+  $("library-search").addEventListener("input", () => {
+    clearTimeout(libraryTimer);
+    libraryTimer = setTimeout(loadLibrary, 200);
   });
+  $("library-refresh").addEventListener("click", loadLibrary);
+  document.querySelectorAll("#library-pills .pill").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      state.libraryKind = btn.dataset.kind;
+      document.querySelectorAll("#library-pills .pill").forEach((b) => b.classList.toggle("is-on", b === btn));
+      loadLibrary();
+    });
+  });
+  $("library-grid").addEventListener("click", async (e) => {
+    const opener = e.target.closest("[data-act='lib-open']");
+    if (opener) {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        await api("/api/open", { method: "POST", body: JSON.stringify({ path: opener.dataset.path || "" }) });
+      } catch (err) {
+        toast(err.message, "critical");
+      }
+      return;
+    }
+    const shot = e.target.closest(".shot");
+    if (!shot || shot.dataset.lib == null) return;
+    const files = state.libraryFiles || [];
+    openLightbox(
+      files.map((file) => ({
+        src: `/api/library/file?p=${encodeURIComponent(file.path)}`,
+        cap: `${file.rel} · ${fmtBytes(file.size)}`,
+        video: file.kind === "video",
+      })),
+      Number(shot.dataset.lib)
+    );
+  });
+  let dragDepth = 0;
+  document.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    dragDepth += 1;
+    $("drop").hidden = false;
+  });
+  document.addEventListener("dragover", (e) => e.preventDefault());
+  document.addEventListener("dragleave", () => {
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (!dragDepth) $("drop").hidden = true;
+  });
+  document.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    dragDepth = 0;
+    $("drop").hidden = true;
+    const chunks = [e.dataTransfer.getData("text/uri-list"), e.dataTransfer.getData("text/plain")];
+    for (const file of e.dataTransfer.files || []) {
+      if (file.size > 2_000_000) continue;
+      if (!/\.(txt|lst|url|csv)$/i.test(file.name) && !String(file.type || "").startsWith("text/")) continue;
+      try {
+        chunks.push(await file.text());
+      } catch {}
+    }
+    const text = chunks.map((part) => String(part || "").trim()).filter(Boolean).join("\n");
+    if (!text) {
+      toast("Drop links, or a text file of URLs.", "warn");
+      return;
+    }
+    $("url").value = [$("url").value, text].filter(Boolean).join("\n");
+    refreshUrlCount();
+    toast("Links added.");
+    setView("queue");
+  });
+  document.addEventListener("error", (e) => {
+    const img = e.target;
+    if (!(img instanceof HTMLImageElement)) return;
+    const ph = document.createElement("div");
+    if (img.classList.contains("thumb")) {
+      ph.className = "thumb ph";
+      ph.textContent = img.dataset.ph || "";
+      img.replaceWith(ph);
+    } else if (img.closest(".shot")) {
+      ph.className = "ph";
+      ph.textContent = "—";
+      img.replaceWith(ph);
+    }
+  }, true);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") $("lightbox").hidden = true;
+    const confirmOpen = !$("confirm-modal").hidden;
+    if (e.key === "Escape") {
+      if (confirmOpen) {
+        $("confirm-cancel").click();
+        return;
+      }
+      if (!$("lightbox").hidden) closeLightbox();
+      return;
+    }
+    if (e.key === "Enter" && confirmOpen) {
+      e.preventDefault();
+      $("confirm-ok").click();
+      return;
+    }
+    const tag = ((e.target && e.target.tagName) || "").toLowerCase();
+    const typing = tag === "input" || tag === "textarea" || tag === "select" || (e.target && e.target.isContentEditable);
+    if (!$("lightbox").hidden && !typing) {
+      if (e.key === "ArrowLeft") showLightboxAt(state.lightboxAt - 1);
+      if (e.key === "ArrowRight") showLightboxAt(state.lightboxAt + 1);
+      return;
+    }
+    if (!typing && state.view === "preview" && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a") {
+      e.preventDefault();
+      visibleItems(currentScan()).forEach((it) => state.selected.add(it.index));
+      renderPreview();
+    }
   });
 }
 
-function openLightbox(src, cap, full = false) {
-  $("lightbox-img").src = src.startsWith("/api/") ? src : thumbSrc(src) + (full ? "&full=1" : "");
-  $("lightbox-cap").textContent = cap || "";
+function closeLightbox() {
+  $("lightbox").hidden = true;
+  const video = $("lightbox-video");
+  video.pause();
+  video.removeAttribute("src");
+  video.load();
+  $("lightbox-img").removeAttribute("src");
+}
+
+function showLightboxAt(index) {
+  const items = state.lightbox || [];
+  if (!items.length) return;
+  state.lightboxAt = (index + items.length) % items.length;
+  const item = items[state.lightboxAt];
+  const img = $("lightbox-img");
+  const video = $("lightbox-video");
+  if (item.video) {
+    img.hidden = true;
+    video.hidden = false;
+    if (video.src !== new URL(item.src, location.href).href) {
+      video.src = item.src;
+    }
+    video.play().catch(() => {});
+  } else {
+    video.pause();
+    video.hidden = true;
+    video.removeAttribute("src");
+    img.hidden = false;
+    img.src = item.src;
+    img.alt = item.cap || "";
+  }
+  $("lightbox-cap").textContent = item.cap || "";
+  $("lightbox-prev").hidden = items.length < 2;
+  $("lightbox-next").hidden = items.length < 2;
   $("lightbox").hidden = false;
+}
+
+function openLightbox(items, index) {
+  state.lightbox = items || [];
+  showLightboxAt(index || 0);
 }
 
 let eventSource = null;
@@ -962,6 +1405,13 @@ function connectEvents() {
   }
   const es = new EventSource("/api/events");
   eventSource = es;
+  es.addEventListener("disk", (ev) => {
+    try {
+      state.disk = JSON.parse(ev.data);
+      renderDisk();
+      if (state.view === "queue" || state.view === "history") scheduleRender();
+    } catch {}
+  });
   es.onmessage = (ev) => {
     try {
       const data = JSON.parse(ev.data);
@@ -985,7 +1435,10 @@ function connectEvents() {
       const finishedDl = state.jobs.find(
         (j) => j.kind !== "scan" && j.status === "done" && !prev.find((p) => p.id === j.id && p.status === "done")
       );
-      if (finishedDl) toast("Download finished.");
+      if (finishedDl) {
+        toast("Download finished.");
+        if (state.view === "library") loadLibrary();
+      }
       const failed = state.jobs.find(
         (j) => j.status === "error" && !prev.find((p) => p.id === j.id && p.status === "error")
       );

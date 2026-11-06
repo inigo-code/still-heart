@@ -138,6 +138,18 @@ class TestScanRetry(JobsTestCase):
         job = jobs.create_job("http://x/album", kind="scan")
         self.assertIsNone(jobs.extend_scan(job["id"], "3-4"))
 
+    def test_active_scan_is_not_queued_twice(self):
+        first = jobs.create_job("http://x/album", kind="scan", range_spec="1-10")
+        again = jobs.create_job("http://x/album", kind="scan", range_spec="1-10")
+        self.assertTrue(again.get("already"))
+        self.assertEqual(again["id"], first["id"])
+        other = jobs.create_job("http://x/album", kind="scan", range_spec="11-20")
+        self.assertFalse(other.get("already"))
+        self.assertNotEqual(other["id"], first["id"])
+        jobs.update_job(first["id"], status="done")
+        fresh = jobs.create_job("http://x/album", kind="scan", range_spec="1-10")
+        self.assertNotEqual(fresh["id"], first["id"])
+
     def test_peek_has_no_heavy_lists(self):
         jid = self._finished_scan()
         peeked = jobs.peek(jid)

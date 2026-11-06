@@ -1,8 +1,11 @@
 import json
 import unittest
 
+from pathlib import Path
+
 from app.engine import (
     _filter_expression,
+    _under_base,
     compress_range,
     item_from_message,
     parse_dump,
@@ -78,6 +81,15 @@ class TestItems(unittest.TestCase):
         self.assertEqual(item["kind"], "gif")
 
 
+class TestUnderBase(unittest.TestCase):
+    def test_accepts_either_slash_and_rejects_a_sibling_prefix(self):
+        base = Path("C:/Downloads/stills")
+        self.assertTrue(_under_base(base, Path("C:/Downloads/stills/pixiv/a.jpg")))
+        self.assertTrue(_under_base(base, Path(r"C:\Downloads\stills\pixiv\a.jpg")))
+        self.assertFalse(_under_base(base, Path("C:/Downloads/stills-extra/a.jpg")))
+        self.assertFalse(_under_base(base, Path("C:/Other/a.jpg")))
+
+
 class TestParseDump(unittest.TestCase):
     def test_parse_list(self):
         data = [
@@ -128,6 +140,12 @@ class TestParseUrls(unittest.TestCase):
     def test_split_and_dedupe(self):
         urls = parse_urls("http://a/1 http://a/1,https://b/2\n\nhttps://b/2")
         self.assertEqual(urls, ["http://a/1", "https://b/2"])
+
+    def test_split_is_case_insensitive(self):
+        self.assertEqual(
+            parse_urls("https://a/1,HTTP://b/2"),
+            ["https://a/1", "HTTP://b/2"],
+        )
 
     def test_rejects_non_http(self):
         self.assertEqual(parse_urls("javascript:alert(1) data:text/html,x file:///C:/win"), [])

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import re
 from copy import deepcopy
 from pathlib import Path
 from threading import Lock
+from urllib.parse import urlparse
 
 from app.paths import ARCHIVE_PATH, DEFAULT_DOWNLOADS, SETTINGS_PATH, ensure_dirs
 
@@ -55,6 +57,26 @@ UGOIRA = ("none", "mp4", "webm", "gif")
 
 _lock = Lock()
 _cache: dict | None = None
+_RE_RATE = re.compile(r"^\d+(\.\d+)?[kmg]?$", re.I)
+
+
+def _clean_proxy(value) -> str:
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return ""
+    parsed = urlparse(text)
+    if parsed.scheme not in {"http", "https", "socks4", "socks5", "socks5h"} or not parsed.hostname:
+        raise ValueError("Proxy must look like http://127.0.0.1:7890 or socks5://127.0.0.1:1080")
+    return text
+
+
+def _clean_rate(value) -> str:
+    text = "" if value is None else re.sub(r"\s+", "", str(value))
+    if not text or text.lower() in {"off", "none", "0"}:
+        return ""
+    if not _RE_RATE.match(text):
+        raise ValueError("Speed limit must look like 500K or 2M, or be left blank")
+    return text
 
 
 def _read() -> tuple[dict, bool]:
@@ -134,6 +156,10 @@ def save(updates: dict) -> dict:
                 current[key] = value if value in UGOIRA else "mp4"
             elif key == "cookies_browser":
                 current[key] = value if value in BROWSERS else ""
+            elif key == "proxy":
+                current[key] = _clean_proxy(value)
+            elif key == "rate":
+                current[key] = _clean_rate(value)
             else:
                 current[key] = "" if value is None else str(value).strip()
         _write(current)
