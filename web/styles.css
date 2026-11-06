@@ -69,7 +69,6 @@ svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width:
   display: flex; flex-direction: column;
   padding: 20px 14px 16px;
   background:
-    radial-gradient(120% 30% at 50% 0%, rgba(255, 122, 92, 0.1), transparent 60%),
     linear-gradient(180deg, #161412, #110f0d);
   border-right: 1px solid var(--line);
   overflow-y: auto;
@@ -177,7 +176,7 @@ h1 { margin: 0; font: 700 28px/1.1 var(--display); letter-spacing: -0.015em; col
 .banner {
   margin-bottom: 16px; padding: 12px 16px; border-radius: var(--radius);
   background: rgba(245, 165, 36, 0.1); color: var(--warn); font-weight: 600;
-  border: 1px solid rgba(245, 165, 36, 0.32); border-left: 4px solid var(--warn);
+  border: 1px solid rgba(245, 165, 36, 0.32); 
   animation: fade-up 0.2s ease;
 }
 .banner.critical { background: var(--red-dim); color: var(--danger); border-color: rgba(244, 63, 94, 0.4); border-left-color: var(--red); }
@@ -186,13 +185,13 @@ h1 { margin: 0; font: 700 28px/1.1 var(--display); letter-spacing: -0.015em; col
 .toasts { position: fixed; right: 22px; bottom: 22px; z-index: 70; display: grid; gap: 10px; width: min(360px, calc(100vw - 32px)); pointer-events: none; }
 .toast {
   pointer-events: auto;
-  background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--accent);
+  background: var(--card); border: 1px solid var(--line); 
   border-radius: var(--radius); padding: 13px 15px; box-shadow: var(--shadow);
   animation: fade-up 0.22s ease; font-weight: 600; font-size: 13px;
 }
-.toast.ok { border-left-color: var(--ok); }
-.toast.critical { border-left-color: var(--red); }
-.toast.warn { border-left-color: var(--warn); }
+.toast.ok { color: var(--ok); }
+.toast.critical { color: var(--danger); }
+.toast.warn { color: var(--warn); }
 .toast.out { animation: toast-out 0.2s ease forwards; }
 
 /* ===================== surfaces ===================== */
@@ -208,7 +207,6 @@ h1 { margin: 0; font: 700 28px/1.1 var(--display); letter-spacing: -0.015em; col
 #composer {
   position: relative; margin-top: 0; padding: 20px;
   background:
-    radial-gradient(130% 100% at 0% 0%, rgba(255, 122, 92, 0.1), transparent 55%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.016), transparent), var(--card);
   border-color: #2a3b48;
 }
@@ -268,7 +266,7 @@ textarea:focus, input:focus, select:focus { outline: none; border-color: var(--a
   height: 100%; display: grid; place-items: center; color: var(--accent-2);
   font: 700 10.5px/1.35 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
   text-align: center; padding: 4px 8px; overflow: hidden; word-break: break-word;
-  background: radial-gradient(circle at 50% 40%, rgba(255, 122, 92, 0.16), transparent 70%), var(--bg-2);
+  background: var(--bg-2);
 }
 .negs { display: flex; gap: 5px; margin-top: 8px; }
 .negs img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); }
