@@ -21,10 +21,10 @@ def resource_dir() -> Path:
 # Portable apps that write next to their exe. Sharing one folder mixes data\.
 _FAMILY = frozenset({"stillheart.exe", "rushheart.exe", "frameheart.exe"})
 # The folders these apps used under their earlier names.
-_OLD_FOLDER = {"stillheart.exe": "Still Heart", "rushheart.exe": "Rush Heart", "frameheart.exe": "Frame Heart"}
+_OLD_FOLDER = {"stillheart.exe": "Stills", "rushheart.exe": "Rushes", "frameheart.exe": "Plates"}
 _OWN = {
     "rushheart.exe": ("rushheart.log", "rushheart.log.old", "rushes.log", "rushes.log.old", "captures"),
-    "stillheart.exe": ("stillheart.log", "stillheart.log.old", "stillheart.log", "stillheart.log.old", "downloads", "gallery-dl.exe"),
+    "stillheart.exe": ("stillheart.log", "stillheart.log.old", "stills.log", "stills.log.old", "downloads", "gallery-dl.exe"),
     "frameheart.exe": ("frameheart.log", "remover.log", "models", "tools"),
 }
 _DATA = {

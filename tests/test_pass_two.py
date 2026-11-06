@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app import guards, jobs, main, settings
+from app import guards, jobs, main, paths, settings
 
 
 class TestThumbnails(unittest.TestCase):
@@ -57,6 +57,28 @@ class TestSettingsFile(unittest.TestCase):
                 settings._write({"a": 1})
             self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"a": 1})
             self.assertEqual([p.name for p in Path(folder).iterdir()], ["settings.json"])
+
+
+class TestOldFolderMoves(unittest.TestCase):
+    def test_data_follows_the_new_name(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / "Stills" / "data").mkdir(parents=True)
+            (root / "Stills" / "data" / "settings.json").write_text("{}", encoding="utf-8")
+            exe = root / "StillHeart.exe"
+            exe.write_bytes(b"x")
+            home = paths.portable_home(exe)
+            self.assertEqual(home.name, "StillHeart")
+            self.assertTrue((home / "data" / "settings.json").is_file())
+            self.assertFalse((root / "Stills").exists())
+
+    def test_an_exe_in_its_old_folder_stays(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder) / "Stills"
+            root.mkdir()
+            exe = root / "StillHeart.exe"
+            exe.write_bytes(b"x")
+            self.assertEqual(paths.portable_home(exe).name, "Stills")
 
 
 if __name__ == "__main__":
