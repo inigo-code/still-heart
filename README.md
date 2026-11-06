@@ -1,5 +1,7 @@
 # Still Heart
 
+![Still Heart showing one album as a grid of pictures](https://inigo-code.github.io/still-heart-site/assets/stills_preview-wide.webp)
+
 Portable bulk picture / album downloader. Paste a gallery URL, **Scan** to pick stills (Bulk Image Downloader style), or **Grab** the whole album with [gallery-dl](https://github.com/mikf/gallery-dl).
 
 ## Run
