@@ -10,6 +10,10 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from app import engine, signin  # noqa: E402
+from app import jobs as _jobs  # noqa: E402
+
+# Test rows must never reach the real history file.
+_jobs.HISTORY_PATH = Path(tempfile.mkdtemp()) / "history.json"
 
 
 def _isolated(tmp: Path) -> None:
@@ -137,6 +141,56 @@ def test_gallery_dl_prints_the_pixiv_login_address_on_a_pipe() -> None:
         finally:
             proc.kill()
             proc.wait()
+
+
+def test_post_counts_never_become_the_job_total() -> None:
+    from app import jobs
+
+    with tempfile.TemporaryDirectory() as folder:
+        base = Path(folder)
+        job = jobs.create_job("https://www.pixiv.net/en/users/1/stat-test")
+        for line in ("1/48", "48/48"):
+            engine._consume_download_line(job["id"], line, 0.0, base)
+        peek = jobs.peek(job["id"])["progress"]
+        assert peek.get("total") is None and peek.get("percent") is None
+        assert peek["post_num"] == 48 and peek["post_count"] == 48
+        for n in range(3):
+            target = base / "pixiv" / "Some artist" / f"{n}_p0.png"
+            engine._consume_download_line(job["id"], str(target), 0.0, base)
+        peek = jobs.peek(job["id"])
+        assert peek["progress"]["saved"] == 3 and peek["progress"]["current"] == 3
+        assert peek["title"] == "Some artist"
+
+
+def test_a_range_is_the_job_total() -> None:
+    from app import jobs
+
+    assert engine.range_size("1-80") == 80
+    assert engine.range_size("3,7-9") == 4
+    assert engine.range_size("") == 0
+    assert engine.range_size("5-") == 0
+    with tempfile.TemporaryDirectory() as folder:
+        base = Path(folder)
+        job = jobs.create_job("https://example.test/range-test", range_spec="1-4")
+        engine._consume_download_line(job["id"], str(base / "a" / "b" / "1.png"), 0.0, base)
+        peek = jobs.peek(job["id"])["progress"]
+        assert peek["total"] == 4 and peek["percent"] == 25.0
+
+
+def test_wide_links() -> None:
+    assert engine.link_scope("https://www.pixiv.net/en/users/1/following")[0]
+    assert engine.link_scope("https://www.pixiv.net/bookmark.php?id=1&type=user")[0]
+    assert engine.link_scope("https://www.pixiv.net/en/users/1")[1]
+    assert engine.link_scope("https://www.pixiv.net/en/users/1/illustrations?p=2")[1]
+    assert engine.link_scope("https://www.pixiv.net/en/artworks/1") == ("", "")
+    assert engine.link_scope("https://www.pixiv.net/en/users/1/bookmarks/artworks") == ("", "")
+
+
+def test_sign_in_says_what_is_required() -> None:
+    with tempfile.TemporaryDirectory() as folder:
+        _isolated(Path(folder))
+        rows = {row["id"]: row["need"] for row in signin.status()["sites"]}
+        assert rows["pixiv"] == "required" and rows["instagram"] == "often" and rows["reddit"] == "optional"
 
 
 if __name__ == "__main__":

@@ -196,6 +196,12 @@ def active_count() -> int:
         return sum(1 for j in _jobs.values() if j.get("status") in ACTIVE and j.get("status") != "queued")
 
 
+def finished_before(url: str) -> bool:
+    clean = url.strip()
+    with _lock:
+        return any(j.get("url") == clean and j.get("kind") == "download" and j.get("status") == "done" for j in _jobs.values())
+
+
 def create_job(
     url: str,
     *,

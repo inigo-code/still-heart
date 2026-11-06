@@ -261,7 +261,7 @@ textarea:focus, input:focus, select:focus { outline: none; border-color: var(--a
 }
 .thumb-wrap { grid-area: thumb; width: 92px; height: 92px; border-radius: 10px; background: var(--bg-2); border: 1px solid var(--line); overflow: hidden; }
 .jobs.layout-thumbs .thumb-wrap { width: 100%; height: auto; aspect-ratio: 16 / 10; }
-.thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb { width: 100%; height: 100%; object-fit: contain; display: block; }
 .thumb.ph {
   height: 100%; display: grid; place-items: center; color: var(--accent-2);
   font: 700 10.5px/1.35 var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
@@ -328,7 +328,7 @@ textarea:focus, input:focus, select:focus { outline: none; border-color: var(--a
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
 }
 .shot:hover { transform: translateY(-3px); box-shadow: var(--shadow); border-color: var(--accent-line); }
-.shot img, .shot .ph { width: 100%; height: 100%; object-fit: cover; display: block; }
+.shot img, .shot .ph { width: 100%; height: 100%; object-fit: contain; display: block; }
 .shot img { transition: transform 0.35s ease; }
 .shot:hover img { transform: scale(1.07); }
 .shot .ph { display: grid; place-items: center; color: var(--muted); font: 700 12px var(--mono); letter-spacing: 0.08em; background: radial-gradient(circle at 50% 40%, rgba(255, 122, 92, 0.14), transparent 70%), var(--bg-2); }
@@ -445,7 +445,7 @@ h1 { font-size: 19px !important; font-weight: 700; }
 .tab.is-on { background: var(--card-2); box-shadow: none; color: var(--text); border: 0; }
 .tab.is-on svg { color: var(--accent); }
 .tab b { background: transparent; color: var(--muted); border: 0; font: 600 12px var(--sans); }
-.work-head { background: transparent; }
+.work-head { background: var(--panel); }
 .btn, button.btn { border-radius: 8px; box-shadow: none; font-weight: 600; }
 .btn.primary, .btn-primary { background: var(--accent); background-image: none; color: var(--accent-ink); border-color: transparent; box-shadow: none; font-weight: 700; }
 .btn.primary:hover, .btn-primary:hover { background: var(--accent-2); filter: none; }
@@ -474,3 +474,6 @@ textarea, input[type="text"], input[type="search"], input[type="url"], select { 
 .account-form label { flex: 1 1 200px; }
 .accounts-other { margin-top: 12px; }
 .icon-btn.accent { color: var(--accent-2); border-color: var(--accent-line); }
+.need { margin-left: 6px; padding: 1px 7px; border: 1px solid var(--line); border-radius: 6px; font-size: 11px; font-style: normal; font-weight: 600; color: var(--muted); }
+.need-required { color: var(--need-strong, #ffb4a2); border-color: currentColor; }
+.need-often { color: var(--text); }

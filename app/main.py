@@ -283,9 +283,24 @@ def _enqueue(body: UrlsIn, *, kind: str) -> dict:
     if kind == "scan" and not range_spec:
         limit = int(cfg.get("scan_limit") or 240)
         range_spec = f"1-{limit}"
-    created = [jobs.create_job(url, kind=kind, range_spec=range_spec) for url in urls]
+    refused: list[str] = []
+    notes: list[str] = []
+    allowed: list[str] = []
+    for url in urls:
+        reason, note = engine.link_scope(url)
+        if reason:
+            refused.append(reason)
+            continue
+        allowed.append(url)
+        if note and not range_spec and note not in notes:
+            notes.append(note)
+    if not allowed:
+        raise HTTPException(400, refused[0])
+    if kind == "download" and any(jobs.finished_before(url) for url in allowed):
+        notes.append("Already in History. Only files you don't have yet are saved.")
+    created = [jobs.create_job(url, kind=kind, range_spec=range_spec) for url in allowed]
     # Always the same shape, so the UI can report what was queued vs. skipped.
-    return {"jobs": created, "count": len(created), "invalid": invalid, "rest": rest}
+    return {"jobs": created, "count": len(created), "invalid": invalid, "rest": rest, "notes": refused + notes}
 
 
 @app.post("/api/grab")

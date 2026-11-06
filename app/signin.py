@@ -107,6 +107,10 @@ SITES: tuple[Site, ...] = (
 )
 BY_ID = {site.id: site for site in SITES}
 OAUTH_LOGIN = {"pixiv": "pixiv"}
+# gallery-dl refuses these outright without an account.
+REQUIRED = {"pixiv", "nijie", "seiga", "gelbooru", "discord"}
+# These work for a few public pages at best.
+OFTEN = {"instagram", "twitter", "facebook", "patreon", "fanbox", "fantia", "subscribestar", "weibo"}
 
 _lock = threading.Lock()
 _active: dict | None = None
@@ -343,6 +347,7 @@ def status() -> dict:
                 "id": site.id,
                 "name": site.name,
                 "how": site.how,
+                "need": "required" if site.id in REQUIRED else "often" if site.id in OFTEN else "optional",
                 "signed_in": bool(row),
                 "when": (row or {}).get("when") or 0,
                 "fields": [{"name": n, "label": label} for n, label in site.fields],
@@ -356,6 +361,7 @@ def status() -> dict:
                     "id": site_id,
                     "name": site_id[5:],
                     "how": "browser",
+                    "need": "",
                     "signed_in": True,
                     "when": row.get("when") or 0,
                     "fields": [],

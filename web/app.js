@@ -344,7 +344,7 @@ function statusChip(job) {
 
 function jobSig(job) {
   const p = job.progress || {};
-  return [job.id, job.status, p.saved, p.current, p.percent, p.total, job.item_count, job.status_line, job.error, job.title, job.size, job.size_speed, p.speed, p.skipped, !!state.logs[job.id], state.disk && state.disk.blocked ? 1 : 0].join("|");
+  return [job.id, job.status, p.saved, p.current, p.percent, p.total, p.post_num, job.sign_in, job.item_count, job.status_line, job.error, job.title, job.size, job.size_speed, p.speed, p.skipped, !!state.logs[job.id], state.disk && state.disk.blocked ? 1 : 0].join("|");
 }
 
 function jobCard(job) {
@@ -378,6 +378,7 @@ function jobCard(job) {
     if (live) {
       if (size) stats.push(fmtBytes(size));
       if (speed) stats.push(`${fmtBytes(speed)}/s`);
+      if (p.post_count > 1) stats.push(`this post ${p.post_num} of ${p.post_count}`);
       if (total && speed && size && saved > 0 && total > saved) {
         const eta = ((total - saved) * (size / saved)) / speed;
         if (eta > 0 && eta < 86400) stats.push(`ETA ${fmtElapsed(eta)}`);
@@ -684,6 +685,9 @@ function scheduleRender() {
 
 const accounts = { sites: [], active: null, available: true, seen: 0, retry: "", timer: 0, open: "" };
 
+const NEED = { required: "Required", often: "Often needed", optional: "Optional" };
+const NEED_RANK = { required: 0, often: 1, optional: 2, "": 3 };
+
 function accountRow(site) {
   const when = site.when ? new Date(site.when * 1000).toLocaleDateString() : "";
   const status = site.signed_in ? `Signed in${when ? ` ${when}` : ""}` : "Not signed in";
@@ -703,7 +707,7 @@ function accountRow(site) {
         .join("")}<button type="button" class="btn primary" data-acct="save" data-site="${escapeHtml(site.id)}">Save</button></div>`
     : "";
   return `<div class="account${site.signed_in ? " is-in" : ""}" data-name="${escapeHtml(site.name.toLowerCase())}">
-    <div class="account-main"><strong>${escapeHtml(site.name)}</strong><span>${escapeHtml(status)}</span></div>
+    <div class="account-main"><strong>${escapeHtml(site.name)}${site.need ? ` <em class="need need-${site.need}">${NEED[site.need]}</em>` : ""}</strong><span>${escapeHtml(status)}</span></div>
     <div class="account-acts">${buttons.join("")}</div>${form}
   </div>`;
 }
@@ -714,7 +718,7 @@ function renderAccounts() {
   const term = $("accounts-search").value.trim().toLowerCase();
   const rows = accounts.sites
     .filter((s) => !term || s.name.toLowerCase().includes(term))
-    .sort((a, b) => Number(b.signed_in) - Number(a.signed_in));
+    .sort((a, b) => Number(b.signed_in) - Number(a.signed_in) || NEED_RANK[a.need] - NEED_RANK[b.need]);
   list.innerHTML = rows.map(accountRow).join("") || `<p class="hint">No site by that name. Add it under Another site.</p>`;
   $("accounts-open").disabled = !!accounts.active;
   $("accounts-note").textContent = accounts.active ? `Finish signing in to ${accounts.active.name} in its window.` : "";
@@ -940,6 +944,7 @@ async function sendUrls(kind) {
     if (created.invalid) notes.push(`${created.invalid} not a URL`);
     if (rest.length) notes.push(`${rest.length} over the batch limit left in the box — send again`);
     const extra = notes.length ? ` (${notes.join(", ")})` : "";
+    (created.notes || []).forEach((note) => toast(note, "warn"));
     // Leave anything that wasn't queued in the box so it isn't lost.
     $("url").value = rest.join("\n");
     refreshUrlCount();

@@ -31,6 +31,8 @@ RE_PREPARE = re.compile(r"^(\d+)/(\d+)$")
 RE_HASH_PATH = re.compile(r"^#\s+(.+)$")
 RE_EXTRACTOR = re.compile(r"^\[([^\]]+)\]")
 
+RANGE_GRACE = 5.0
+
 _procs: dict[str, subprocess.Popen] = {}
 _proc_lock = threading.Lock()
 
@@ -497,11 +499,12 @@ def _consume_download_line(job_id: str, line: str, started: float, base: Path) -
     if RE_PROGRESS_LINE.match(text):
         prep = RE_PREPARE.match(text)
         if prep:
+            # This is the place within one post, not within the job. A profile
+            # holds many posts, so it must never become the job's total.
             cur, tot = int(prep.group(1)), int(prep.group(2))
             if tot > 0:
-                fields["progress"]["current"] = cur
-                fields["progress"]["total"] = tot
-                fields["progress"]["percent"] = round(100 * cur / tot, 1)
+                fields["progress"]["post_num"] = cur
+                fields["progress"]["post_count"] = tot
                 jobs.update_job(job_id, **fields)
         return
     # "# path" = skipped, plain absolute path = downloaded (gallery-dl pipe output)
@@ -516,24 +519,71 @@ def _consume_download_line(job_id: str, line: str, started: float, base: Path) -
     path = str(candidate)
     fields["add_file"] = path
     current = jobs.peek(job_id) or {}
+    progress = current.get("progress") or {}
+    saved = int(progress.get("saved") or 0)
+    skipped = int(progress.get("skipped") or 0)
     if is_skip:
-        fields["progress"]["skipped"] = int((current.get("progress") or {}).get("skipped") or 0) + 1
+        skipped += 1
+        fields["progress"]["skipped"] = skipped
     else:
-        saved = int((current.get("progress") or {}).get("saved") or 0) + 1
+        saved += 1
         fields["progress"]["saved"] = saved
-        fields["progress"]["current"] = saved
+    fields["progress"]["current"] = saved + skipped
+    limit = range_size(current.get("range") or "")
+    if limit:
+        fields["progress"]["total"] = limit
+        fields["progress"]["percent"] = round(min(100.0, 100 * (saved + skipped) / limit), 1)
+    if not is_skip:
         if not current.get("output_path"):
             fields["output_path"] = path
         if not current.get("thumbnail") and candidate.suffix.lower().lstrip(".") in IMAGE_EXTS | GIF_EXTS:
             fields["thumbnail"] = path
         title = current.get("title") or ""
         if not title or title == current.get("url"):
-            fields["title"] = candidate.stem[:80]
+            fields["title"] = _job_title(candidate, base)
     ext_match = RE_EXTRACTOR.match(text)
     if ext_match and ext_match.group(1) not in {"download", "downloader.http", "gallery-dl", "urllib3"}:
         if not current.get("extractor"):
             fields["extractor"] = ext_match.group(1)
     jobs.update_job(job_id, **fields)
+
+
+def _job_title(path: Path, base: Path) -> str:
+    """Name a job after its artist or album folder, not its first file."""
+    try:
+        parts = path.relative_to(base).parts
+    except ValueError:
+        parts = ()
+    return (parts[-2] if len(parts) >= 3 else path.stem)[:80]
+
+
+def range_size(range_spec: str) -> int:
+    """How many files a range asks for, or 0 when it has no end."""
+    total = 0
+    for piece in (range_spec or "").split(","):
+        piece = piece.strip()
+        if not piece:
+            continue
+        match = re.fullmatch(r"(\d+)(?:-(\d+))?", piece)
+        if match is None:
+            return 0
+        start = int(match.group(1))
+        end = int(match.group(2) or start)
+        total += max(0, end - start + 1)
+    return total
+
+
+FOLLOWING = re.compile(r"pixiv\.net/(?:en/)?(?:users/\d+/following|bookmark\.php\?(?:[^#]*&)?type=user)", re.I)
+PIXIV_PROFILE = re.compile(r"pixiv\.net/(?:en/)?(?:users|u)/\d+(?:/(?:artworks|illustrations|manga))?/?(?:[?#]|$)", re.I)
+
+
+def link_scope(url: str) -> tuple[str, str]:
+    """(reason to refuse, note to show) for a link wider than it looks."""
+    if FOLLOWING.search(url):
+        return "That link is the list of artists this account follows, so it would save all of their galleries. Paste one artist's link.", ""
+    if PIXIV_PROFILE.search(url):
+        return "", "That link is the artist's whole profile, so every post is saved. To save one post, paste the post's own link."
+    return "", ""
 
 
 def download_status(code: int | None, saved: int, skipped: int = 0) -> str | None:
@@ -581,6 +631,13 @@ def run_job(job_id: str) -> None:
         seen_children = {it.get("url") for it in existing if it.get("child")}
         last_flush = time.time()
         found = 0
+        wanted = range_size(range_spec)
+        reached_at = 0.0
+
+        def note_reached() -> None:
+            nonlocal reached_at
+            if not reached_at:
+                reached_at = time.time()
 
         def is_repeat_child(item: dict) -> bool:
             if not item.get("child"):
@@ -633,8 +690,13 @@ def run_job(job_id: str) -> None:
                                 found += 1
                                 if found % 8 == 0 or time.time() - last_flush > 0.25:
                                     flush_scan()
+                                if wanted and found >= wanted:
+                                    note_reached()
                 else:
                     _consume_download_line(job_id, line, started, base)
+                    progress = (jobs.peek(job_id) or {}).get("progress") or {}
+                    if wanted and int(progress.get("saved") or 0) + int(progress.get("skipped") or 0) >= wanted:
+                        note_reached()
                 if jobs.should_stop(job_id):
                     break
 
@@ -672,10 +734,15 @@ def run_job(job_id: str) -> None:
             if now - last_tick >= 0.8:
                 jobs.update_job(job_id, progress={"elapsed": now - started})
                 last_tick = now
+            # gallery-dl counts a range per album. Once the job's share is in,
+            # give it a moment to finish the last file, then end it.
+            if reached_at and now - reached_at > RANGE_GRACE:
+                proc.terminate()
+                break
             time.sleep(0.2)
         t_out.join(timeout=4)
         t_err.join(timeout=4)
-        code = proc.poll()
+        code = 0 if reached_at else proc.poll()
         stdout = "".join(stdout_chunks)
         stderr = "".join(stderr_chunks)
 
