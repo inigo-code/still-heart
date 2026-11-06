@@ -1,6 +1,6 @@
 """Still Heart — portable bulk picture / album downloader."""
 
-__version__ = "1.2.2"
+__version__ = "1.3.0"
 APP_NAME = "Still Heart"
 APP_AUTHOR = "Inigo Joseph"
 APP_CREDIT = "A Heart App by Inigo"

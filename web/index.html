@@ -206,6 +206,23 @@
                 <span class="hint" id="engine-msg"></span>
               </div>
             </div>
+            <div class="card" id="accounts-card">
+              <h2>Accounts</h2>
+              <p class="hint">Some sites only show their pictures to signed-in people. Sign in here and Still Heart uses your account for that site. Your password goes to the site, not to this app.</p>
+              <div class="accounts-bar">
+                <input id="accounts-search" type="search" placeholder="Find a site" spellcheck="false" aria-label="Find a site" />
+                <span class="hint" id="accounts-note"></span>
+              </div>
+              <div id="accounts-list" class="accounts-list"></div>
+              <div class="accounts-other">
+                <label>Another site
+                  <span class="field-row">
+                    <input id="accounts-url" type="text" placeholder="example.com" spellcheck="false" />
+                    <button type="button" class="btn" id="accounts-open">Sign in</button>
+                  </span>
+                </label>
+              </div>
+            </div>
             <form class="card" id="settings-form">
               <h2>Download folder</h2>
               <label>Folder
@@ -216,8 +233,8 @@
               </label>
               <p class="hint">Files are saved in subfolders by site and author unless you change organization below.</p>
 
-              <h2>Login</h2>
-              <p class="hint">Login-walled sites (Instagram, X, Pixiv…) need a logged-in session. Log into the site in your browser, then pick it here. Firefox exports cookies most reliably; Chrome's newer cookie encryption often blocks this. A Netscape cookies.txt from any browser also works.</p>
+              <h2>Other ways to sign in</h2>
+              <p class="hint">If a site won't let you sign in under Accounts, sign in with your own browser and pick it here. Firefox works best, because Chrome's newer cookie encryption often blocks this. A Netscape cookies.txt from any browser also works.</p>
               <div class="cols">
                 <label>Cookies file
                   <span class="field-row">

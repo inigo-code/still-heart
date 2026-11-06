@@ -27,7 +27,7 @@ Windows needs [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/we
 2. **Scan** lists the files in a thumbnail grid — tick what you want, then download (the BID workflow).
 3. **Grab** skips preview and saves the whole set.
 
-Login walls (Instagram, Pixiv, X, etc.): export a Netscape `cookies.txt` or pick your browser under Settings.
+Login walls (Instagram, Pixiv, X, etc.): open Settings, then Accounts, and sign in from inside the app. If a site refuses that, export a Netscape `cookies.txt` or pick your browser under Settings.
 
 ## What it improves on BID
 

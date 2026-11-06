@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, recycle, scheduler, settings
+from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, recycle, scheduler, settings, signin
 from app.paths import DATA_DIR, WEB_DIR, ensure_dirs, free_port
 from app.runtime import ensure_local_gallery_dl, invalidate_runtime, runtime_report, warm_runtime
 
@@ -106,6 +106,16 @@ class SettingsIn(BaseModel):
 
 class OpenIn(BaseModel):
     path: str = ""
+
+
+class SignInIn(BaseModel):
+    site: str = ""
+    url: str = ""
+
+
+class KeysIn(BaseModel):
+    site: str
+    values: dict[str, str]
 
 
 class PickIn(BaseModel):
@@ -216,6 +226,38 @@ def health() -> dict:
         "author": APP_AUTHOR,
         "credit": APP_CREDIT,
     }
+
+
+@app.get("/api/accounts")
+def get_accounts() -> dict:
+    return signin.status()
+
+
+@app.post("/api/accounts/sign-in")
+def post_sign_in(body: SignInIn) -> dict:
+    try:
+        if body.url.strip():
+            signin.start_other(body.url)
+        else:
+            engine.start_sign_in(body.site)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return signin.status()
+
+
+@app.post("/api/accounts/keys")
+def post_keys(body: KeysIn) -> dict:
+    try:
+        signin.save_keys(body.site, body.values)
+    except (ValueError, OSError) as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return signin.status()
+
+
+@app.post("/api/accounts/sign-out")
+def post_sign_out(body: SignInIn) -> dict:
+    signin.sign_out(body.site)
+    return signin.status()
 
 
 @app.get("/api/settings")

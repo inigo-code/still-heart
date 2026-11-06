@@ -8,6 +8,7 @@ from copy import deepcopy
 from threading import Lock
 from typing import Any
 
+from app import signin
 from app.paths import moved_path, HISTORY_PATH, SCANS_PATH, ensure_dirs
 
 TERMINAL = {"done", "error", "stopped", "partial"}
@@ -81,6 +82,7 @@ def snapshot(job: dict[str, Any]) -> dict[str, Any]:
         "files_count": len(job.get("files") or []),
         "item_count": len(items),
         "error": job.get("error") or "",
+        "sign_in": signin.needs(job),
         "created_at": job.get("created_at"),
         "started_at": job.get("started_at"),
         "ended_at": job.get("ended_at"),

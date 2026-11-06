@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from app import jobs, settings
+from app import jobs, settings, signin
 from app.paths import DATA_DIR, EXTRACTORS_PATH, ensure_dirs
 from app.runtime import (
     LOCAL_GDL,
@@ -38,15 +38,17 @@ CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 
 _ERROR_HINTS = (
-    ("401", "Instagram/login wall — set a cookies.txt or your browser in Settings"),
-    ("unauthorized", "Login wall — set a cookies.txt or your browser in Settings"),
+    ("refresh-token", "Pixiv needs your account. Open Settings, then Accounts, and sign in to Pixiv."),
+    ("401", "This site needs your account. Open Settings, then Accounts, and sign in."),
+    ("unauthorized", "This site needs your account. Open Settings, then Accounts, and sign in."),
     ("redirect to home", "The site rejected your session — log out and log back in inside your browser, then retry. If it keeps failing, your IP may be flagged: try a proxy in Settings."),
     ("403 forbidden", "The site refused the request (cookies expired or bot check) — re-login in your browser, or use a proxy in Settings"),
     ("challenge", "Site sent a bot challenge (Cloudflare) — retry later, or use cookies from your browser"),
     ("unsupported url", "No extractor for this URL — check the Sites tab for the correct URL format"),
     ("rate-limit", "Rate limited by the site — wait a bit, raise 'Pause between requests' in Settings"),
     ("429", "Rate limited by the site — wait a bit, raise 'Pause between requests' in Settings"),
-    ("login required", "Login wall — set a cookies.txt or your browser in Settings"),
+    ("login required", "This site needs your account. Open Settings, then Accounts, and sign in."),
+    ("authentication", "This site needs your account. Open Settings, then Accounts, and sign in."),
 )
 
 
@@ -309,7 +311,7 @@ def _retries(cfg: dict) -> int:
     return 4 if value in (None, "") else int(value)
 
 
-def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str = "") -> None:
+def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str = "", url: str = "") -> None:
     extractor: dict[str, Any] = {
         "base-directory": str(settings.output_dir()).replace("\\", "/"),
         "filename": settings.filename_format(cfg),
@@ -323,7 +325,12 @@ def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str =
     }
     cookies_file = (cfg.get("cookies_file") or "").strip()
     cookies_browser = (cfg.get("cookies_browser") or "").strip()
-    if cookies_file and Path(cookies_file).is_file():
+    session = signin.cookie_file_for(url)
+    if session:
+        # A saved sign-in stays as it is. gallery-dl would otherwise rewrite it mid-job.
+        extractor["cookies"] = session.replace("\\", "/")
+        extractor["cookies-update"] = False
+    elif cookies_file and Path(cookies_file).is_file():
         extractor["cookies"] = cookies_file.replace("\\", "/")
     elif cookies_browser:
         extractor["cookies"] = [cookies_browser]
@@ -365,6 +372,7 @@ def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str =
             "jsonl": bool(scan),
         },
     }
+    signin.apply_to_config(payload, url)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -403,6 +411,10 @@ def _env() -> dict[str, str]:
         folder = str(Path(ffmpeg).parent)
         env["PATH"] = folder + os.pathsep + env.get("PATH", "")
     return env
+
+
+def start_sign_in(site_id: str) -> None:
+    signin.start(site_id, find_gallery_dl(), _env())
 
 
 def _spawn(cmd: list[str]) -> subprocess.Popen:
@@ -549,7 +561,7 @@ def run_job(job_id: str) -> None:
     started = time.time()
     base = settings.output_dir()
     try:
-        write_config(config_path, cfg, scan=(kind == "scan"), range_spec=range_spec)
+        write_config(config_path, cfg, scan=(kind == "scan"), range_spec=range_spec, url=job["url"])
         cmd = _cmd_base(cfg, config_path, scan=(kind == "scan"))
         if range_spec:
             cmd += ["--range", range_spec]

@@ -396,6 +396,9 @@ function jobCard(job) {
   if (["queued", "starting", "scanning", "downloading"].includes(job.status)) {
     actions.push(`<button class="icon-btn stop" data-act="stop" data-id="${job.id}">Stop</button>`);
   }
+  if (job.sign_in) {
+    actions.push(`<button class="icon-btn accent" data-act="sign-in" data-id="${job.id}" data-site="${escapeHtml(job.sign_in)}">Sign in</button>`);
+  }
   if (["error", "stopped", "partial"].includes(job.status)) {
     actions.push(`<button class="icon-btn" data-act="retry" data-id="${job.id}">Retry</button>`);
   }
@@ -679,6 +682,117 @@ function scheduleRender() {
   });
 }
 
+const accounts = { sites: [], active: null, available: true, seen: 0, retry: "", timer: 0, open: "" };
+
+function accountRow(site) {
+  const when = site.when ? new Date(site.when * 1000).toLocaleDateString() : "";
+  const status = site.signed_in ? `Signed in${when ? ` ${when}` : ""}` : "Not signed in";
+  const busy = accounts.active && accounts.active.site === site.id;
+  const buttons = [];
+  if (site.signed_in) buttons.push(`<button type="button" class="btn" data-acct="out" data-site="${escapeHtml(site.id)}">Sign out</button>`);
+  if (site.how === "key") {
+    if (!site.signed_in) buttons.push(`<button type="button" class="btn" data-acct="form" data-site="${escapeHtml(site.id)}">Add</button>`);
+  } else if (!site.signed_in || site.how === "browser") {
+    buttons.push(`<button type="button" class="btn${site.signed_in ? "" : " primary"}" data-acct="in" data-site="${escapeHtml(site.id)}" ${accounts.active ? "disabled" : ""}>${busy ? "Signing in" : site.signed_in ? "Sign in again" : "Sign in"}</button>`);
+  }
+  if (site.token && !site.signed_in) buttons.unshift(`<button type="button" class="btn" data-acct="form" data-site="${escapeHtml(site.id)}">Use a token</button>`);
+  const fields = site.fields.length ? site.fields : site.token ? [{ name: site.token, label: "Refresh token" }] : [];
+  const form = accounts.open === site.id
+    ? `<div class="account-form" data-site="${escapeHtml(site.id)}">${fields
+        .map((f) => `<label>${escapeHtml(f.label)}<input type="password" autocomplete="off" spellcheck="false" data-field="${escapeHtml(f.name)}" /></label>`)
+        .join("")}<button type="button" class="btn primary" data-acct="save" data-site="${escapeHtml(site.id)}">Save</button></div>`
+    : "";
+  return `<div class="account${site.signed_in ? " is-in" : ""}" data-name="${escapeHtml(site.name.toLowerCase())}">
+    <div class="account-main"><strong>${escapeHtml(site.name)}</strong><span>${escapeHtml(status)}</span></div>
+    <div class="account-acts">${buttons.join("")}</div>${form}
+  </div>`;
+}
+
+function renderAccounts() {
+  const list = $("accounts-list");
+  if (!list) return;
+  const term = $("accounts-search").value.trim().toLowerCase();
+  const rows = accounts.sites
+    .filter((s) => !term || s.name.toLowerCase().includes(term))
+    .sort((a, b) => Number(b.signed_in) - Number(a.signed_in));
+  list.innerHTML = rows.map(accountRow).join("") || `<p class="hint">No site by that name. Add it under Another site.</p>`;
+  $("accounts-open").disabled = !!accounts.active;
+  $("accounts-note").textContent = accounts.active ? `Finish signing in to ${accounts.active.name} in its window.` : "";
+}
+
+function takeAccounts(data) {
+  accounts.sites = data.sites || [];
+  accounts.active = data.active || null;
+  accounts.available = !!data.available;
+  const last = data.last;
+  if (last && last.at > accounts.seen) {
+    if (accounts.seen) {
+      toast(last.message, last.ok ? "ok" : "warn");
+      if (last.ok && accounts.retry) {
+        const id = accounts.retry;
+        accounts.retry = "";
+        api(`/api/jobs/${id}/retry`, { method: "POST" }).catch(() => {});
+      }
+    }
+    accounts.seen = last.at;
+  }
+  renderAccounts();
+  clearTimeout(accounts.timer);
+  if (accounts.active) accounts.timer = setTimeout(loadAccounts, 1200);
+}
+
+async function loadAccounts() {
+  try {
+    takeAccounts(await api("/api/accounts"));
+  } catch (err) {
+    toast(err.message, "critical");
+  }
+}
+
+async function startSignIn(site, jobId = "", url = "") {
+  accounts.seen = accounts.seen || 1;
+  accounts.retry = jobId;
+  takeAccounts(await api("/api/accounts/sign-in", { method: "POST", body: JSON.stringify({ site, url }) }));
+}
+
+function bindAccounts() {
+  $("accounts-search").addEventListener("input", renderAccounts);
+  $("accounts-open").addEventListener("click", async () => {
+    const url = $("accounts-url").value.trim();
+    if (!url) return;
+    try {
+      await startSignIn("", "", url);
+      $("accounts-url").value = "";
+    } catch (err) {
+      toast(err.message, "critical");
+    }
+  });
+  $("accounts-list").addEventListener("click", async (e) => {
+    const btn = e.target.closest("[data-acct]");
+    if (!btn) return;
+    const site = btn.dataset.site;
+    const act = btn.dataset.acct;
+    try {
+      if (act === "in") await startSignIn(site);
+      if (act === "out") takeAccounts(await api("/api/accounts/sign-out", { method: "POST", body: JSON.stringify({ site }) }));
+      if (act === "form") {
+        accounts.open = accounts.open === site ? "" : site;
+        renderAccounts();
+      }
+      if (act === "save") {
+        const values = {};
+        btn.closest(".account-form").querySelectorAll("input").forEach((input) => { values[input.dataset.field] = input.value; });
+        accounts.open = "";
+        takeAccounts(await api("/api/accounts/keys", { method: "POST", body: JSON.stringify({ site, values }) }));
+        toast("Saved.", "ok");
+      }
+    } catch (err) {
+      toast(err.message, "critical");
+    }
+  });
+  loadAccounts();
+}
+
 function fillSettings(cfg) {
   state.settings = cfg;
   $("set-output").value = cfg.output_dir || "";
@@ -947,6 +1061,9 @@ function wire() {
       if (act === "retry") {
         await api(`/api/jobs/${id}/retry`, { method: "POST" });
         toast("Retry started.");
+      }
+      if (act === "sign-in") {
+        await startSignIn(btn.dataset.site, id);
       }
       if (act === "open") {
         const job = state.jobs.find((j) => j.id === id);
@@ -1487,6 +1604,7 @@ function connectEvents() {
 }
 
 async function boot() {
+  bindAccounts();
   wire();
   try {
     const health = await api("/api/health");

@@ -459,3 +459,18 @@ h1 { font-size: 19px !important; font-weight: 700; }
 .kicker, .modal-kicker { display: none !important; }
 textarea, input[type="text"], input[type="search"], input[type="url"], select { background: var(--bg-2, var(--inset)); }
 .confirm-option { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; cursor: pointer; }
+
+/* Accounts */
+.accounts-bar { display: flex; align-items: center; gap: 14px; margin: 12px 0 10px; }
+.accounts-bar input { max-width: 260px; }
+.accounts-list { display: grid; gap: 1px; max-height: 330px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--line-soft); }
+.account { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 14px; padding: 9px 12px; background: var(--card); }
+.account-main strong { display: block; font-size: 14px; font-weight: 600; color: var(--text); }
+.account-main span { display: block; margin-top: 2px; font-size: 12px; color: var(--muted); }
+.account.is-in .account-main span { color: var(--accent-2); }
+.account-acts { display: flex; gap: 6px; }
+.account-acts .btn { padding: 5px 11px; font-size: 13px; }
+.account-form { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; padding: 8px 0 4px; }
+.account-form label { flex: 1 1 200px; }
+.accounts-other { margin-top: 12px; }
+.icon-btn.accent { color: var(--accent-2); border-color: var(--accent-line); }
