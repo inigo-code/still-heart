@@ -458,3 +458,4 @@ h1 { font-size: 19px !important; font-weight: 700; }
 
 .kicker, .modal-kicker { display: none !important; }
 textarea, input[type="text"], input[type="search"], input[type="url"], select { background: var(--bg-2, var(--inset)); }
+.confirm-option { display: flex; align-items: center; gap: 10px; margin: 14px 0 4px; cursor: pointer; }

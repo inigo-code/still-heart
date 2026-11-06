@@ -120,7 +120,15 @@ async function api(path, opts = {}) {
 }
 
 let confirmBusy = null;
-function askConfirm({ kicker = "Please confirm", title = "Are you sure?", copy = "", ok = "OK" } = {}) {
+let confirmExtra = false;
+
+async function reloadJobs() {
+  const data = await api("/api/jobs");
+  state.jobs = data.jobs || [];
+  render();
+}
+
+function askConfirm({ kicker = "Please confirm", title = "Are you sure?", copy = "", ok = "OK", option = "" } = {}) {
   if (confirmBusy) return confirmBusy;
   confirmBusy = new Promise((resolve) => {
     const modal = $("confirm-modal");
@@ -129,11 +137,16 @@ function askConfirm({ kicker = "Please confirm", title = "Are you sure?", copy =
     $("confirm-copy").textContent = copy;
     $("confirm-copy").hidden = !copy;
     $("confirm-ok").textContent = ok;
+    confirmExtra = false;
+    $("confirm-option").hidden = !option;
+    $("confirm-option-box").checked = false;
+    $("confirm-option-label").textContent = option;
     modal.hidden = false;
     let done = false;
     const finish = (value) => {
       if (done) return;
       done = true;
+      confirmExtra = Boolean(value && option && $("confirm-option-box").checked);
       modal.hidden = true;
       confirmBusy = null;
       resolve(value);
@@ -906,9 +919,20 @@ function wire() {
     toast(n ? `Retrying ${n} job${n === 1 ? "" : "s"}.` : "Nothing to retry.", n ? "ok" : "warn");
   });
   $("clear-history").addEventListener("click", async () => {
-    if (!(await askConfirm({ title: "Clear history?", copy: "Finished jobs leave the list. Files on disk stay.", ok: "Clear history" }))) return;
-    await api("/api/history/clear", { method: "POST" });
-    toast("History cleared.");
+    const ok = await askConfirm({
+      title: "Clear history?",
+      copy: "Your files stay on disk unless you tick the box.",
+      ok: "Clear",
+      option: "Also move the files to the Recycle Bin",
+    });
+    if (!ok) return;
+    try {
+      const result = await api(`/api/history/clear${confirmExtra ? "?files=true" : ""}`, { method: "POST" });
+      await reloadJobs();
+      toast(result.recycled ? `History cleared. ${result.recycled} moved to the Recycle Bin.` : "History cleared.");
+    } catch (err) {
+      toast(err.message, "critical");
+    }
   });
   $("jobs").addEventListener("click", async (e) => {
     const btn = e.target.closest("[data-act]");
@@ -949,14 +973,22 @@ function wire() {
         }
       }
       if (act === "remove") {
-        await api(`/api/jobs/${id}`, { method: "DELETE" });
+        const job = state.jobs.find((j) => j.id === id);
+        const ok = await askConfirm({
+          title: "Remove this from the list?",
+          ok: "Remove",
+          option: job && job.files_count ? "Also move its files to the Recycle Bin" : "",
+        });
+        if (!ok) return;
+        const result = await api(`/api/jobs/${id}${confirmExtra ? "?files=true" : ""}`, { method: "DELETE" });
         delete state.logs[id];
         delete state.scanItems[id];
         if (state.scanId === id) {
           state.scanId = "";
           state.selected = new Set();
         }
-        toast("Removed from the list. Files on disk stay.");
+        await reloadJobs();
+        toast(result.recycled ? `${result.recycled} moved to the Recycle Bin.` : "Removed from the list. Files on disk stay.");
       }
     } catch (err) {
       toast(err.message, "critical");

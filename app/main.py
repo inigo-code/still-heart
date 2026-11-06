@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response, StreamingRes
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, scheduler, settings
+from app import APP_AUTHOR, APP_CREDIT, APP_NAME, APP_TAGLINE, __version__, dialogs, engine, guards, jobs, recycle, scheduler, settings
 from app.paths import DATA_DIR, WEB_DIR, ensure_dirs, free_port
 from app.runtime import ensure_local_gallery_dl, invalidate_runtime, runtime_report, warm_runtime
 
@@ -309,14 +309,15 @@ def retry_job(job_id: str) -> dict:
 
 
 @app.delete("/api/jobs/{job_id}")
-def delete_job(job_id: str) -> dict:
+def delete_job(job_id: str, files: bool = False) -> dict:
     current = jobs.get_job(job_id)
     if not current:
         raise HTTPException(404, "Job not found")
     if current.get("status") in jobs.ACTIVE and current.get("status") != "queued":
         raise HTTPException(409, "Stop it before removing")
+    paths = jobs.files_of(job_id) if files else []
     jobs.remove_job(job_id)
-    return {"ok": True}
+    return {"ok": True, "recycled": recycle.to_recycle_bin(paths)}
 
 
 @app.post("/api/jobs/stop-all")
@@ -328,8 +329,10 @@ def stop_all() -> dict:
 
 
 @app.post("/api/history/clear")
-def clear_history() -> dict:
-    return {"removed": jobs.clear_history()}
+def clear_history(files: bool = False) -> dict:
+    paths = jobs.finished_files() if files else []
+    removed = jobs.clear_history()
+    return {"removed": removed, "recycled": recycle.to_recycle_bin(paths)}
 
 
 @app.post("/api/scans/{job_id}/more")
@@ -438,7 +441,8 @@ def update_engine() -> dict:
 def _reveal(path: Path) -> None:
     """Open a folder, or select a file in Explorer."""
     if sys.platform == "win32" and path.is_file():
-        subprocess.run(["explorer", f"/select,{path}"], check=False)
+        # As one quoted argument Explorer can't read this, and opens Documents.
+        subprocess.Popen(f'explorer /select,"{path}"')
         return
     os.startfile(str(path))  # type: ignore[attr-defined]
 
@@ -449,10 +453,15 @@ def open_path(body: OpenIn) -> dict:
     if not target:
         target = str(settings.output_dir())
     path = Path(target).expanduser()
-    if not path.exists():
-        raise HTTPException(404, "Folder not found")
-    if not any(_safe_under(root, path) for root in (settings.output_dir(), DATA_DIR)):
+    # A file saved before the download folder changed is still this app's own.
+    known = jobs.knows_file(str(path))
+    if not any(_safe_under(root, path) for root in (settings.output_dir(), DATA_DIR)) and not known:
         raise HTTPException(403, "That folder is outside your downloads")
+    if not path.exists():
+        # The file was moved or deleted. Its folder is still the useful place.
+        if not path.parent.is_dir():
+            raise HTTPException(404, "That file and its folder are no longer there.")
+        path = path.parent
     try:
         _reveal(path)
     except OSError as exc:

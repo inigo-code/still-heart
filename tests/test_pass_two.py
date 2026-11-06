@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from app import guards, jobs, main, paths, settings
+from app import guards, jobs, main, paths, recycle, settings
 
 
 class TestThumbnails(unittest.TestCase):
@@ -95,6 +95,33 @@ class TestSavedPathsFollow(unittest.TestCase):
 
     def test_nothing_moves_when_there_was_no_old_folder(self):
         self.assertEqual(paths.moved_path(r"C:\\Suite\\Old\\a.jpg", None), r"C:\\Suite\\Old\\a.jpg")
+
+
+class TestShow(unittest.TestCase):
+    def test_explorer_gets_a_command_it_can_read(self):
+        with tempfile.TemporaryDirectory(prefix="show test ") as folder:
+            target = Path(folder) / "a clip.mp4"
+            target.write_bytes(b"x")
+            with mock.patch.object(main.subprocess, "Popen") as popen:
+                main._reveal(target)
+            self.assertEqual(popen.call_args.args[0], f'explorer /select,"{target}"')
+
+
+class TestRecycleBin(unittest.TestCase):
+    def test_only_real_files_are_sent(self):
+        with tempfile.TemporaryDirectory(prefix="bin test ") as folder:
+            target = Path(folder) / "a clip.mp4"
+            target.write_bytes(b"x")
+            self.assertEqual(recycle.to_recycle_bin([str(target), str(target), str(Path(folder) / "missing.mp4")]), 1)
+            self.assertFalse(target.exists())
+
+
+class TestKnownFiles(unittest.TestCase):
+    def test_a_file_from_an_older_download_folder_can_be_shown(self):
+        with mock.patch.dict(jobs._jobs, {"a": {"status": "done", "files": [r"D:\\Old\\a.jpg"], "output_path": ""}}, clear=True):
+            self.assertTrue(jobs.knows_file(r"D:\\Old\\a.jpg"))
+            self.assertFalse(jobs.knows_file(r"D:\\Other\\a.jpg"))
+            self.assertEqual(jobs.finished_files(), [r"D:\\Old\\a.jpg"])
 
 
 if __name__ == "__main__":

@@ -397,6 +397,29 @@ def append_log(job_id: str, line: str) -> None:
     update_job(job_id, log_line=line)
 
 
+def files_of(job_id: str) -> list[str]:
+    with _lock:
+        job = _jobs.get(job_id)
+        return [str(path) for path in (job.get("files") or [])] if job else []
+
+
+def finished_files() -> list[str]:
+    """Files saved by the jobs that Clear history would remove."""
+    with _lock:
+        return [str(path) for j in _jobs.values() if j.get("status") in TERMINAL for path in (j.get("files") or [])]
+
+
+def knows_file(path: str) -> bool:
+    """True when a job saved this file."""
+    wanted = os.path.normcase(os.path.normpath(path))
+    with _lock:
+        for job in _jobs.values():
+            for known in [job.get("output_path") or ""] + list(job.get("files") or []):
+                if known and os.path.normcase(os.path.normpath(str(known))) == wanted:
+                    return True
+    return False
+
+
 def clear_history() -> int:
     with _lock:
         ids = [jid for jid, job in _jobs.items() if job.get("status") in TERMINAL]
