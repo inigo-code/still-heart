@@ -34,7 +34,7 @@ def find_ffmpeg() -> str | None:
 
 
 def ensure_local_gallery_dl() -> Path | None:
-    """Keep a copy next to Stills.exe so --update survives relaunch."""
+    """Keep a copy next to StillHeart.exe so --update survives relaunch."""
     if LOCAL_GDL.is_file():
         return LOCAL_GDL
     bundled = resource_dir() / "gallery-dl.exe"
@@ -63,7 +63,7 @@ def find_gallery_dl() -> list[str]:
     found = which("gallery-dl")
     if found:
         return [found]
-    # Never re-exec Stills.exe to run gallery-dl: a onefile unpack per
+    # Never re-exec StillHeart.exe to run gallery-dl: a onefile unpack per
     # --version would hang the health check and spawn nested copies.
     if not is_frozen():
         return [sys.executable, "-u", "-m", "gallery_dl"]

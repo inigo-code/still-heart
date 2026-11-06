@@ -627,7 +627,7 @@ def _fetch_thumb(url: str, limit: int = THUMB_SOURCE_MAX) -> tuple[bytes, str]:
     req = urllib.request.Request(
         url,
         headers={
-            "User-Agent": "Mozilla/5.0 Stills/1.0",
+            "User-Agent": "Mozilla/5.0 StillHeart/1.0",
             "Referer": referer,
             "Accept": "image/*,*/*;q=0.8",
         },

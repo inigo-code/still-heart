@@ -23,7 +23,7 @@ const state = {
   scanItems: {},
   settings: {},
   view: "queue",
-  layout: localStorage.getItem("stills-layout") || "thumbs",
+  layout: localStorage.getItem("stillheart-layout") || "thumbs",
   engine: {},
   kind: "all",
   scanId: "",
@@ -846,7 +846,7 @@ function wire() {
     btn.classList.toggle("is-active", btn.dataset.layout === state.layout);
     btn.addEventListener("click", () => {
       state.layout = btn.dataset.layout;
-      localStorage.setItem("stills-layout", state.layout);
+      localStorage.setItem("stillheart-layout", state.layout);
       document.querySelectorAll(".layout-btn").forEach((b) => b.classList.toggle("is-active", b.dataset.layout === state.layout));
       render();
     });

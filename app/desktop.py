@@ -26,8 +26,8 @@ WEBVIEW2_DOWNLOAD = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
 
 def _log_path() -> Path:
     if getattr(sys, "frozen", False):
-        return user_dir() / "stills.log"
-    return Path(__file__).resolve().parent.parent / "stills.log"
+        return user_dir() / "stillheart.log"
+    return Path(__file__).resolve().parent.parent / "stillheart.log"
 
 
 _STDIO_ATTACHED = False
@@ -59,7 +59,7 @@ from app.main import app
 from app.paths import WEB_DIR, ensure_dirs
 
 
-def _message_box(text: str, title: str = "Stills", yes_no: bool = False) -> bool:
+def _message_box(text: str, title: str = "Still Heart", yes_no: bool = False) -> bool:
     if sys.platform != "win32":
         print(text, flush=True)
         return False
@@ -113,7 +113,7 @@ def _fail(kind: str, detail: str = "") -> None:
     extra = f"\n\nDetails:\n{detail}" if detail else ""
     if kind == "webview2":
         msg = (
-            "Stills needs Microsoft Edge WebView2 to open its window.\n\n"
+            "Still Heart needs Microsoft Edge WebView2 to open its window.\n\n"
             "This is already on Windows 11 and most Windows 10 PCs.\n"
             "If you are on an old or stripped-down Windows 10, install the "
             "WebView2 Runtime (Evergreen).\n\n"
@@ -124,7 +124,7 @@ def _fail(kind: str, detail: str = "") -> None:
         return
     if kind == "server":
         msg = (
-            "Stills could not start its downloader.\n\n"
+            "Still Heart could not start its downloader.\n\n"
             "First launch can take 15–30 seconds. Try once more.\n"
             "Windows Defender may have blocked the unpack — allow the app if asked.\n\n"
             f"A log was written to:\n{log}"
@@ -133,7 +133,7 @@ def _fail(kind: str, detail: str = "") -> None:
         _message_box(msg)
         return
     msg = (
-        "Stills could not open.\n\n"
+        "Still Heart could not open.\n\n"
         f"{detail or 'Unknown error.'}\n\n"
         f"A log was written to:\n{log}"
     )
@@ -151,7 +151,7 @@ def _wait(url: str, tries: int = 120) -> None:
         except Exception as exc:
             last = str(exc)
             time.sleep(0.1)
-    raise RuntimeError(f"Stills server did not start ({url}): {last}")
+    raise RuntimeError(f"Still Heart server did not start ({url}): {last}")
 
 
 def main() -> None:

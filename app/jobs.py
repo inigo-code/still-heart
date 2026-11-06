@@ -502,7 +502,7 @@ def load_history() -> None:
                     continue
                 if item.get("status") in ACTIVE:
                     item["status"] = "stopped"
-                    item["error"] = item.get("error") or "Interrupted when Stills closed."
+                    item["error"] = item.get("error") or "Interrupted when Still Heart closed."
                     item["ended_at"] = item.get("ended_at") or _now()
                 item.setdefault("log", [])
                 item.setdefault("files", [])

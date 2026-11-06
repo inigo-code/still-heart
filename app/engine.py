@@ -372,7 +372,7 @@ def write_config(path: Path, cfg: dict, *, scan: bool = False, range_spec: str =
 def _cmd_base(cfg: dict, config_path: Path, *, scan: bool) -> list[str]:
     gdl = find_gallery_dl()
     if not gdl:
-        raise RuntimeError("gallery-dl was not found. Place gallery-dl.exe next to Stills or in bin\\.")
+        raise RuntimeError("gallery-dl was not found. Place gallery-dl.exe next to Still Heart or in bin\\.")
     cmd = list(gdl) + [
         "--ignore-config",
         "-c",
@@ -891,7 +891,7 @@ def update_engine() -> dict:
     if not can_self_update():
         raise RuntimeError(
             "This copy of gallery-dl cannot self-update. "
-            "The portable app uses gallery-dl.exe next to Stills.exe."
+            "The portable app uses gallery-dl.exe next to StillHeart.exe."
         )
     # Windows locks a running exe, so the update would fail (or a job would
     # start mid-update). Raise the flag first so the scheduler can't race us.

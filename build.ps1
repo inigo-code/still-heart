@@ -1,4 +1,4 @@
-# Build a single portable Stills.exe (gallery-dl + optional ffmpeg baked in).
+# Build a single portable StillHeart.exe (gallery-dl + optional ffmpeg baked in).
 Set-Location $PSScriptRoot
 $ErrorActionPreference = "Stop"
 
@@ -54,12 +54,12 @@ if (-not $ffmpeg) {
   Write-Host "ffmpeg.exe not found — Pixiv ugoira conversion will be skipped. Images still download."
 }
 
-Write-Host "Building single-file Stills.exe..."
+Write-Host "Building single-file StillHeart.exe..."
 & $py -m PyInstaller --noconfirm --clean stills.spec
 
-$exe = Join-Path $PSScriptRoot "dist\Stills.exe"
+$exe = Join-Path $PSScriptRoot "dist\StillHeart.exe"
 if (-not (Test-Path $exe)) {
-  Write-Error "Build finished but dist\Stills.exe is missing"
+  Write-Error "Build finished but dist\StillHeart.exe is missing"
 }
 
 Write-Host ""

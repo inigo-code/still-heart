@@ -1,4 +1,4 @@
-# Stills
+# Still Heart
 
 Portable bulk picture / album downloader. Paste a gallery URL, **Scan** to pick stills (Bulk Image Downloader style), or **Grab** the whole album with [gallery-dl](https://github.com/mikf/gallery-dl).
 
@@ -11,7 +11,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 .\build.ps1
 ```
 
-That produces **one file**: `dist\Stills.exe`. Copy it anywhere and double-click. gallery-dl is inside. First launch can take 15–30 seconds while it unpacks. The app then keeps `data\`, `downloads\`, and `stills.log` in a `Stills` folder next to the exe. If the exe is already inside a folder named Stills, it uses that folder.
+That produces **one file**: `dist\StillHeart.exe`. Copy it anywhere and double-click. gallery-dl is inside. First launch can take 15–30 seconds while it unpacks. The app then keeps `data\`, `downloads\`, and `stillheart.log` in a `StillHeart` folder next to the exe. If the exe is already inside a folder named StillHeart, it uses that folder.
 
 Windows needs [WebView2](https://developer.microsoft.com/en-us/microsoft-edge/webview2/) (already on Windows 11 and most Windows 10).
 
@@ -42,7 +42,7 @@ Login walls (Instagram, Pixiv, X, etc.): export a Netscape `cookies.txt` or pick
 
 ## Legal
 
-You must have the right to save the files. Stills does not bypass paywalls, DRM, or site bans.
+You must have the right to save the files. Still Heart does not bypass paywalls, DRM, or site bans.
 
 ## Stack
 

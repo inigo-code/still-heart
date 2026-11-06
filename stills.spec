@@ -61,7 +61,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name="Stills",
+    name="StillHeart",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

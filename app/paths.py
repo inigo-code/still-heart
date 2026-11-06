@@ -19,21 +19,23 @@ def resource_dir() -> Path:
 
 
 # Portable apps that write next to their exe. Sharing one folder mixes data\.
-_FAMILY = frozenset({"stills.exe", "rushes.exe", "plates.exe"})
+_FAMILY = frozenset({"stillheart.exe", "rushheart.exe", "frameheart.exe"})
+# The folders these apps used under their earlier names.
+_OLD_FOLDER = {"stillheart.exe": "Still Heart", "rushheart.exe": "Rush Heart", "frameheart.exe": "Frame Heart"}
 _OWN = {
-    "rushes.exe": ("rushes.log", "rushes.log.old", "captures"),
-    "stills.exe": ("stills.log", "stills.log.old", "downloads", "gallery-dl.exe"),
-    "plates.exe": ("remover.log", "models", "tools"),
+    "rushheart.exe": ("rushheart.log", "rushheart.log.old", "rushes.log", "rushes.log.old", "captures"),
+    "stillheart.exe": ("stillheart.log", "stillheart.log.old", "stillheart.log", "stillheart.log.old", "downloads", "gallery-dl.exe"),
+    "frameheart.exe": ("frameheart.log", "remover.log", "models", "tools"),
 }
 _DATA = {
-    "rushes.exe": ("schedule.json", "diag.txt"),
-    "stills.exe": ("archive.sqlite3", "extractors.json", "scans.json"),
-    "plates.exe": (),
+    "rushheart.exe": ("schedule.json", "diag.txt"),
+    "stillheart.exe": ("archive.sqlite3", "extractors.json", "scans.json"),
+    "frameheart.exe": (),
 }
 _BIN = {
-    "rushes.exe": ("yt-dlp.exe", "yt-dlp.exe.old", "yt-dlp-download.exe"),
-    "stills.exe": ("gallery-dl.exe", "gallery-dl.exe.old"),
-    "plates.exe": (),
+    "rushheart.exe": ("yt-dlp.exe", "yt-dlp.exe.old", "yt-dlp-download.exe"),
+    "stillheart.exe": ("gallery-dl.exe", "gallery-dl.exe.old"),
+    "frameheart.exe": (),
 }
 
 
@@ -74,18 +76,30 @@ def _claim(folder: Path, home: Path, exe_name: str) -> None:
 def portable_home(exe: Path) -> Path:
     """Folder this portable exe should write into.
 
-    Stills.exe always uses a Stills folder. The same rule applies to Rushes and
-    Plates, whether or not the other apps are nearby. An exe that already sits
+    StillHeart.exe always uses a Still Heart folder. The same rule applies to Rush Heart and
+    Frame Heart, whether or not the other apps are nearby. An exe that already sits
     inside a folder of its own name uses that folder.
     """
     exe = exe.resolve()
     folder = exe.parent
-    if exe.name.lower() not in _FAMILY or folder.name.lower() == exe.stem.lower():
+    name = exe.name.lower()
+    if name not in _FAMILY or folder.name.lower() == exe.stem.lower():
+        return folder
+    old = _OLD_FOLDER[name]
+    # An exe already inside its old folder stays there, with its data.
+    if folder.name.lower() == old.lower():
         return folder
     home = folder / exe.stem
     if home.exists() and not home.is_dir():
         return folder
-    _claim(folder, home, exe.name.lower())
+    legacy = folder / old
+    if legacy.is_dir() and not home.exists():
+        # Settings, models and history follow the app to its new name.
+        try:
+            legacy.rename(home)
+        except OSError:
+            return legacy
+    _claim(folder, home, name)
     try:
         home.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -108,7 +122,7 @@ HISTORY_PATH = DATA_DIR / "history.json"
 ARCHIVE_PATH = DATA_DIR / "archive.sqlite3"
 EXTRACTORS_PATH = DATA_DIR / "extractors.json"
 SCANS_PATH = DATA_DIR / "scans.json"
-LOG_PATH = ROOT / "stills.log"
+LOG_PATH = ROOT / "stillheart.log"
 
 
 def ensure_dirs(downloads: Path | None = None) -> None:
@@ -138,10 +152,10 @@ def _is_stills_unpack(d: Path) -> bool:
 
 
 def prune_stale_unpacks(temp: Path, current: str | None, cutoff: float) -> int:
-    """Delete old Stills ``_MEI*`` unpacks in ``temp`` that no process is using.
+    """Delete old Still Heart ``_MEI*`` unpacks in ``temp`` that no process is using.
 
     Other PyInstaller apps share the ``_MEI`` prefix, so only folders holding
-    Stills' own files are touched. A folder that a running copy still has files
+    Still Heart' own files are touched. A folder that a running copy still has files
     open in can't be renamed on Windows; renaming first means a live unpack is
     skipped instead of half-deleted.
     """
@@ -168,7 +182,7 @@ def prune_stale_unpacks(temp: Path, current: str | None, cutoff: float) -> int:
 
 
 def prune_temp_extractions() -> int:
-    """Reclaim disk leaked by stale PyInstaller onefile unpacks of Stills."""
+    """Reclaim disk leaked by stale PyInstaller onefile unpacks of Still Heart."""
     if not getattr(sys, "frozen", False):
         return 0
     current = getattr(sys, "_MEIPASS", None)

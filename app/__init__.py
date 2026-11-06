@@ -1,7 +1,7 @@
-"""Stills — portable bulk picture / album downloader."""
+"""Still Heart — portable bulk picture / album downloader."""
 
-__version__ = "1.1.0"
-APP_NAME = "Stills"
+__version__ = "1.2.0"
+APP_NAME = "Still Heart"
 APP_AUTHOR = "Inigo Joseph"
-APP_CREDIT = "Made by Inigo"
+APP_CREDIT = "A Heart App by Inigo"
 APP_TAGLINE = "Bulk Picture Downloader"
