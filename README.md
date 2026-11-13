@@ -1,6 +1,6 @@
 # Still Heart
 
-![Still Heart showing one album as a grid of pictures](https://inigo-code.github.io/still-heart-site/assets/stills_preview-wide.webp)
+![Still Heart showing one album as a grid of pictures](https://heartapps.github.io/still-heart/assets/stills_preview-wide.webp)
 
 Portable bulk picture / album downloader. Paste a gallery URL, **Scan** to pick stills (Bulk Image Downloader style), or **Grab** the whole album with [gallery-dl](https://github.com/mikf/gallery-dl).
 
@@ -54,4 +54,4 @@ Python / FastAPI on `127.0.0.1` only, gallery-dl, optional ffmpeg, WebView2 wind
 
 This code is published so you can read it and build it yourself. All rights reserved: there is no open-source licence. Third-party parts keep their own licences, listed in [NOTICE](NOTICE).
 
-Downloads and the website: [Still Heart](https://inigo-code.github.io/still-heart-site/). Bugs and ideas: inigo@tosstheworld.org.
+Downloads and the website: [Still Heart](https://heartapps.github.io/still-heart/). Bugs and ideas: inigo@tosstheworld.org.
